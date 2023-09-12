@@ -40,7 +40,7 @@ jobs:
       - name: Safe directory
         run: git config --global --add safe.directory `pwd`
       - name : configure
-        run: auto/configure --with-http_ssl_module
+        run: mkdir build; cd build; cmake ..
       - name: Checkout CodeSonar CI-Script
         uses: actions/checkout@v4
         with:
