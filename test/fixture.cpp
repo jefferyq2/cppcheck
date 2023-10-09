@@ -18,10 +18,12 @@
 
 #include "fixture.h"
 
+#include "cppcheck.h"
 #include "errortypes.h"
 #include "options.h"
 #include "redirect.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cctype>
 #include <exception>
@@ -90,6 +92,7 @@ bool TestFixture::prepareTest(const char testname[])
     mVerbose = false;
     mTemplateFormat.clear();
     mTemplateLocation.clear();
+    CppCheck::resetTimerResults();
 
     prepareTestInternal();
 
@@ -104,6 +107,7 @@ bool TestFixture::prepareTest(const char testname[])
         } else {
             std::cout << classname << "::" << mTestname << std::endl;
         }
+        teardownTestInternal();
         return true;
     }
     return false;

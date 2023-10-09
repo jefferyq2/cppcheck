@@ -22,6 +22,7 @@
 
 #include "config.h"
 #include "errortypes.h"
+#include "findtoken.h"
 #include "infer.h"
 #include "library.h"
 #include "mathlib.h"
@@ -724,7 +725,8 @@ std::vector<ValueType> getParentValueTypes(const Token* tok, const Settings* set
                 const Scope* scope = t->classScope;
                 // Check for aggregate constructors
                 if (scope && scope->numConstructors == 0 && t->derivedFrom.empty() &&
-                    (t->isClassType() || t->isStructType()) && numberOfArguments(ftok) < scope->varlist.size()) {
+                    (t->isClassType() || t->isStructType()) && numberOfArguments(ftok) <= scope->varlist.size() &&
+                    !scope->varlist.empty()) {
                     assert(argn < scope->varlist.size());
                     auto it = std::next(scope->varlist.cbegin(), argn);
                     if (it->valueType())
@@ -1401,10 +1403,10 @@ static inline bool isSameConstantValue(bool macro, const Token* tok1, const Toke
     };
 
     tok1 = adjustForCast(tok1);
-    if (!tok1->isNumber())
+    if (!tok1->isNumber() && !tok1->enumerator())
         return false;
     tok2 = adjustForCast(tok2);
-    if (!tok2->isNumber())
+    if (!tok2->isNumber() && !tok2->enumerator())
         return false;
 
     if (macro && (tok1->isExpandedMacro() || tok2->isExpandedMacro() || tok1->isTemplateArg() || tok2->isTemplateArg()))
@@ -1521,7 +1523,7 @@ bool isSameExpression(bool cpp, bool macro, const Token *tok1, const Token *tok2
         return true;
 
     // Follow variable
-    if (followVar && !tok_str_eq && (tok1->varId() || tok2->varId())) {
+    if (followVar && !tok_str_eq && (tok1->varId() || tok2->varId() || tok1->enumerator() || tok2->enumerator())) {
         const Token * varTok1 = followVariableExpression(tok1, cpp, tok2);
         if ((varTok1->str() == tok2->str()) || isSameConstantValue(macro, varTok1, tok2)) {
             followVariableExpressionError(tok1, varTok1, errors);
@@ -2468,6 +2470,16 @@ bool isVariableChangedByFunctionCall(const Token *tok, int indirect, const Setti
         if (!arg->isConst() && arg->isReference())
             return true;
     }
+    if (addressOf && tok1->astParent()->isUnaryOp("&")) {
+        const Token* castToken = tok1->astParent();
+        while (castToken->astParent()->isCast())
+            castToken = castToken->astParent();
+        if (Token::Match(castToken->astParent(), ",|(") &&
+            castToken->valueType() &&
+            castToken->valueType()->isIntegral() &&
+            castToken->valueType()->pointer == 0)
+            return true;
+    }
     if (!conclusive && inconclusive) {
         *inconclusive = true;
     }
@@ -2807,6 +2819,11 @@ bool isVariableChanged(const Variable * var, const Settings *settings, bool cpp,
         return false;
     if (Token::Match(start, "; %varid% =", var->declarationId()))
         start = start->tokAt(2);
+    if (Token::simpleMatch(start, "=")) {
+        const Token* next = nextAfterAstRightmostLeafGeneric(start);
+        if (next)
+            start = next;
+    }
     return isExpressionChanged(var->nameToken(), start->next(), var->scope()->bodyEnd, settings, cpp, depth);
 }
 
@@ -2866,7 +2883,14 @@ bool isThisChanged(const Token* start, const Token* end, int indirect, const Set
     return false;
 }
 
-bool isExpressionChanged(const Token* expr, const Token* start, const Token* end, const Settings* settings, bool cpp, int depth)
+template<class Find>
+bool isExpressionChangedImpl(const Token* expr,
+                             const Token* start,
+                             const Token* end,
+                             const Settings* settings,
+                             bool cpp,
+                             int depth,
+                             Find find)
 {
     if (depth < 0)
         return true;
@@ -2887,7 +2911,7 @@ bool isExpressionChanged(const Token* expr, const Token* start, const Token* end
         }
 
         if (tok->exprId() > 0) {
-            for (const Token* tok2 = start; tok2 != end; tok2 = tok2->next()) {
+            const Token* result = find(start, end, [&](const Token* tok2) {
                 int indirect = 0;
                 if (const ValueType* vt = tok->valueType()) {
                     indirect = vt->pointer;
@@ -2897,11 +2921,53 @@ bool isExpressionChanged(const Token* expr, const Token* start, const Token* end
                 for (int i = 0; i <= indirect; ++i)
                     if (isExpressionChangedAt(tok, tok2, i, global, settings, cpp, depth))
                         return true;
-            }
+                return false;
+            });
+            if (result)
+                return true;
         }
         return false;
     });
     return result;
+}
+
+struct ExpressionChangedSimpleFind {
+    template<class F>
+    const Token* operator()(const Token* start, const Token* end, F f) const
+    {
+        return findToken(start, end, f);
+    }
+};
+
+struct ExpressionChangedSkipDeadCode {
+    const Library* library;
+    const std::function<std::vector<MathLib::bigint>(const Token* tok)>* evaluate;
+    ExpressionChangedSkipDeadCode(const Library* library,
+                                  const std::function<std::vector<MathLib::bigint>(const Token* tok)>& evaluate)
+        : library(library), evaluate(&evaluate)
+    {}
+    template<class F>
+    const Token* operator()(const Token* start, const Token* end, F f) const
+    {
+        return findTokenSkipDeadCode(library, start, end, f, *evaluate);
+    }
+};
+
+bool isExpressionChanged(const Token* expr, const Token* start, const Token* end, const Settings* settings, bool cpp, int depth)
+{
+    return isExpressionChangedImpl(expr, start, end, settings, cpp, depth, ExpressionChangedSimpleFind{});
+}
+
+bool isExpressionChangedSkipDeadCode(const Token* expr,
+                                     const Token* start,
+                                     const Token* end,
+                                     const Settings* settings,
+                                     bool cpp,
+                                     const std::function<std::vector<MathLib::bigint>(const Token* tok)>& evaluate,
+                                     int depth)
+{
+    return isExpressionChangedImpl(
+        expr, start, end, settings, cpp, depth, ExpressionChangedSkipDeadCode{&settings->library, evaluate});
 }
 
 const Token* getArgumentStart(const Token* ftok)

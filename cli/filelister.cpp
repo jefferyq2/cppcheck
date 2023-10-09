@@ -18,7 +18,6 @@
 
 #include "filelister.h"
 
-#include "config.h"
 #include "path.h"
 #include "pathmatch.h"
 #include "utils.h"
@@ -94,7 +93,7 @@ std::string FileLister::addFiles(std::map<std::string, std::size_t> &files, cons
             // no files matched
             return "";
         }
-        return "finding files failed (error: " + std::to_string(err) + ")";
+        return "finding files failed. Search pattern: '" + searchPattern + "'. (error: " + std::to_string(err) + ")";
     }
     std::unique_ptr<void, decltype(&FindClose)> hFind_deleter(hFind, FindClose);
 
@@ -188,7 +187,7 @@ static std::string addFiles2(std::map<std::string, std::size_t> &files,
             std::string new_path = path;
             new_path += '/';
 
-            while (const struct dirent* dir_result = readdir(dir)) {
+            while (const dirent* dir_result = readdir(dir)) {
                 if ((std::strcmp(dir_result->d_name, ".") == 0) ||
                     (std::strcmp(dir_result->d_name, "..") == 0))
                     continue;

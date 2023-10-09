@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <cctype>
 #include <climits>
+#include <cstddef>
 #include <cstring>
 #include <list>
 #include <memory>
@@ -185,13 +186,6 @@ Library::Container::Action Library::Container::actionFrom(const std::string& act
     if (actionName == "change")
         return Container::Action::CHANGE;
     return Container::Action::NO_ACTION;
-}
-
-// cppcheck-suppress unusedFunction - only used in unit tests
-bool Library::loadxmldata(const char xmldata[], std::size_t len)
-{
-    tinyxml2::XMLDocument doc;
-    return (tinyxml2::XML_SUCCESS == doc.Parse(xmldata, len)) && (load(doc).errorcode == ErrorCode::OK);
 }
 
 Library::Error Library::load(const tinyxml2::XMLDocument &doc)
@@ -518,7 +512,7 @@ Library::Error Library::load(const tinyxml2::XMLDocument &doc)
                     for (const tinyxml2::XMLElement* memberNode = node->FirstChildElement(); memberNode; memberNode = memberNode->NextSiblingElement()) {
                         const char *memberName = memberNode->Attribute("name");
                         const char *memberTemplateParameter = memberNode->Attribute("templateParameter");
-                        struct Container::RangeItemRecordTypeItem member;
+                        Container::RangeItemRecordTypeItem member;
                         member.name = memberName ? memberName : "";
                         member.templateParameter = memberTemplateParameter ? strToInt<int>(memberTemplateParameter) : -1;
                         container.rangeItemRecordType.emplace_back(std::move(member));
@@ -923,13 +917,13 @@ bool Library::isIntArgValid(const Token *ftok, int argnr, const MathLib::bigint 
     TokenList tokenList(nullptr);
     gettokenlistfromvalid(ac->valid, tokenList);
     for (const Token *tok = tokenList.front(); tok; tok = tok->next()) {
-        if (tok->isNumber() && argvalue == MathLib::toLongNumber(tok->str()))
+        if (tok->isNumber() && argvalue == MathLib::toBigNumber(tok->str()))
             return true;
-        if (Token::Match(tok, "%num% : %num%") && argvalue >= MathLib::toLongNumber(tok->str()) && argvalue <= MathLib::toLongNumber(tok->strAt(2)))
+        if (Token::Match(tok, "%num% : %num%") && argvalue >= MathLib::toBigNumber(tok->str()) && argvalue <= MathLib::toBigNumber(tok->strAt(2)))
             return true;
-        if (Token::Match(tok, "%num% : ,") && argvalue >= MathLib::toLongNumber(tok->str()))
+        if (Token::Match(tok, "%num% : ,") && argvalue >= MathLib::toBigNumber(tok->str()))
             return true;
-        if ((!tok->previous() || tok->previous()->str() == ",") && Token::Match(tok,": %num%") && argvalue <= MathLib::toLongNumber(tok->strAt(1)))
+        if ((!tok->previous() || tok->previous()->str() == ",") && Token::Match(tok,": %num%") && argvalue <= MathLib::toBigNumber(tok->strAt(1)))
             return true;
     }
     return false;

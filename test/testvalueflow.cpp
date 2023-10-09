@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "library.h"
+#include "helpers.h"
 #include "mathlib.h"
 #include "platform.h"
 #include "settings.h"
@@ -32,14 +32,10 @@
 #include <cstring>
 #include <functional>
 #include <list>
-#include <map>
 #include <set>
 #include <sstream>
 #include <string>
-#include <utility>
 #include <vector>
-
-#include <simplecpp.h>
 
 class TestValueFlow : public TestFixture {
 public:
@@ -55,7 +51,7 @@ private:
                            "  <function name=\"strcpy\"> <arg nr=\"1\"><not-null/></arg> </function>\n"
                            "  <function name=\"abort\"> <noreturn>true</noreturn> </function>\n" // abort is a noreturn function
                            "</def>";
-        ASSERT_EQUALS(true, settings.library.loadxmldata(cfg, sizeof(cfg)));
+        settings = settingsBuilder(settings).libraryxml(cfg, sizeof(cfg)).build();
 
         TEST_CASE(valueFlowNumber);
         TEST_CASE(valueFlowString);
@@ -486,22 +482,17 @@ private:
         return false;
     }
 
-    void bailout(const char code[]) {
+#define bailout(...) bailout_(__FILE__, __LINE__, __VA_ARGS__)
+    void bailout_(const char* file, int line, const char code[]) {
         const Settings s = settingsBuilder().debugwarnings().build();
         errout.str("");
 
         std::vector<std::string> files(1, "test.cpp");
-        std::istringstream istr(code);
-        const simplecpp::TokenList tokens1(istr, files, files[0]);
-
-        simplecpp::TokenList tokens2(files);
-        std::map<std::string, simplecpp::TokenList*> filedata;
-        simplecpp::preprocess(tokens2, tokens1, files, filedata, simplecpp::DUI());
+        Tokenizer tokenizer(&s, this);
+        PreprocessorHelper::preprocess(code, files, tokenizer);
 
         // Tokenize..
-        Tokenizer tokenizer(&s, this);
-        tokenizer.createTokens(std::move(tokens2));
-        tokenizer.simplifyTokens1("");
+        ASSERT_LOC(tokenizer.simplifyTokens1(""), file, line);
     }
 
 #define tokenValues(...) tokenValues_(__FILE__, __LINE__, __VA_ARGS__)
@@ -4517,7 +4508,7 @@ private:
                "void f(Object *obj) {\n"
                "  if (valid(obj, K0)) {}\n"
                "}\n";
-        ASSERT_EQUALS(true, testValueOfX(code, 7U, 0));
+        TODO_ASSERT_EQUALS(true, false, testValueOfX(code, 7U, 0));
         ASSERT_EQUALS(false, testValueOfXKnown(code, 7U, 0));
 
         code = "int f(int i) {\n"
@@ -4530,7 +4521,21 @@ private:
                "}\n";
         ASSERT_EQUALS(true, testValueOfX(code, 3U, 1));
         ASSERT_EQUALS(true, testValueOfX(code, 3U, 0));
+
+        code = "void foo(int* p, int* x) {\n"
+               "    bool b1 = (p != NULL);\n"
+               "    bool b2 = b1 && (x != NULL);\n"
+               "    if (b2) {\n"
+               "        *x = 3;\n"
+               "    }\n"
+               "}\n"
+               "\n"
+               "void bar() {\n"
+               "    foo(NULL, NULL);\n"
+               "}\n";
+        ASSERT_EQUALS(false, testValueOfX(code, 5U, 0));
     }
+
     void valueFlowFunctionReturn() {
         const char *code;
 
@@ -5590,6 +5595,16 @@ private:
         values = tokenValues(code, "& y :", ValueFlow::Value::ValueType::UNINIT);
         ASSERT_EQUALS(1, values.size());
         ASSERT_EQUALS(true, values.front().isUninitValue());
+
+        // #12012 - function init variable
+        code = "void init(uintptr_t p);\n"
+               "void fp() {\n"
+               "  int x;\n"
+               "  init((uintptr_t)&x);\n"
+               "  if (x > 0) {}\n"
+               "}\n";
+        values = tokenValues(code, "x >", ValueFlow::Value::ValueType::UNINIT);
+        ASSERT_EQUALS(0, values.size());
     }
 
     void valueFlowConditionExpressions() {

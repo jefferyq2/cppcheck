@@ -20,12 +20,15 @@
 #include "settings.h"
 #include "fixture.h"
 #include "helpers.h"
+#include "importproject.h"
 #include "library.h"
 #include "threadexecutor.h"
 #include "timer.h"
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdlib>
+#include <list>
 #include <map>
 #include <memory>
 #include <set>
@@ -34,24 +37,32 @@
 #include <utility>
 #include <vector>
 
-class TestThreadExecutor : public TestFixture {
+class TestThreadExecutorBase : public TestFixture {
 public:
-    TestThreadExecutor() : TestFixture("TestThreadExecutor") {}
+    TestThreadExecutorBase(const char * const name, bool useFS) : TestFixture(name), useFS(useFS) {}
 
 private:
     Settings settings = settingsBuilder().library("std.cfg").build();
+    bool useFS;
 
-    static std::string fprefix()
+    std::string fprefix() const
     {
+        if (useFS)
+            return "threadfs";
         return "thread";
     }
 
     struct CheckOptions
     {
         CheckOptions() = default;
+        bool quiet = true;
         SHOWTIME_MODES showtime = SHOWTIME_MODES::SHOWTIME_NONE;
         const char* plistOutput = nullptr;
         std::vector<std::string> filesList;
+        bool clangTidy = false;
+        bool executeCommandCalled = false;
+        std::string exe;
+        std::vector<std::string> args;
     };
 
     /**
@@ -62,34 +73,68 @@ private:
         errout.str("");
         output.str("");
 
+        Settings s = settings;
+
         std::map<std::string, std::size_t> filemap;
         if (opt.filesList.empty()) {
             for (int i = 1; i <= files; ++i) {
-                std::ostringstream oss;
-                oss << fprefix() << "_" << i << ".cpp";
-                filemap[oss.str()] = data.size();
+                std::string f_s = fprefix() + "_" + std::to_string(i) + ".cpp";
+                filemap[f_s] = data.size();
+                if (useFS) {
+                    ImportProject::FileSettings fs;
+                    fs.filename = std::move(f_s);
+                    s.project.fileSettings.emplace_back(std::move(fs));
+                }
             }
         }
         else {
             for (const auto& f : opt.filesList)
             {
                 filemap[f] = data.size();
+                if (useFS) {
+                    ImportProject::FileSettings fs;
+                    fs.filename = f;
+                    s.project.fileSettings.emplace_back(std::move(fs));
+                }
             }
         }
 
-        Settings settings1 = settings;
-        settings1.jobs = jobs;
-        settings1.showtime = opt.showtime;
+        s.jobs = jobs;
+        s.showtime = opt.showtime;
+        s.quiet = opt.quiet;
         if (opt.plistOutput)
-            settings1.plistOutput = opt.plistOutput;
-        // TODO: test with settings.project.fileSettings;
-        ThreadExecutor executor(filemap, settings1, settings1.nomsg, *this);
+            s.plistOutput = opt.plistOutput;
+        s.clangTidy = opt.clangTidy;
+
+        bool executeCommandCalled = false;
+        std::string exe;
+        std::vector<std::string> args;
+        // NOLINTNEXTLINE(performance-unnecessary-value-param)
+        auto executeFn = [&executeCommandCalled, &exe, &args](std::string e,std::vector<std::string> a,std::string,std::string&){
+            executeCommandCalled = true;
+            exe = std::move(e);
+            args = std::move(a);
+            return EXIT_SUCCESS;
+        };
+
         std::vector<std::unique_ptr<ScopedFile>> scopedfiles;
         scopedfiles.reserve(filemap.size());
         for (std::map<std::string, std::size_t>::const_iterator i = filemap.cbegin(); i != filemap.cend(); ++i)
             scopedfiles.emplace_back(new ScopedFile(i->first, data));
 
+        // clear files list so only fileSettings are used
+        if (useFS)
+            filemap.clear();
+
+        ThreadExecutor executor(filemap, s, s.nomsg, *this, executeFn);
         ASSERT_EQUALS(result, executor.check());
+        ASSERT_EQUALS(opt.executeCommandCalled, executeCommandCalled);
+        ASSERT_EQUALS(opt.exe, exe);
+        ASSERT_EQUALS(opt.args.size(), args.size());
+        for (int i = 0; i < args.size(); ++i)
+        {
+            ASSERT_EQUALS(opt.args[i], args[i]);
+        }
     }
 
     void run() override {
@@ -103,6 +148,12 @@ private:
         TEST_CASE(one_error_less_files);
         TEST_CASE(one_error_several_files);
         TEST_CASE(markup);
+        TEST_CASE(clangTidy);
+        TEST_CASE(showtime_top5_file);
+        TEST_CASE(showtime_top5_summary);
+        TEST_CASE(showtime_file);
+        TEST_CASE(showtime_summary);
+        TEST_CASE(showtime_file_total);
     }
 
     void deadlock_with_many_errors() {
@@ -117,6 +168,7 @@ private:
         check(2, 3, 3, oss.str());
     }
 
+    // TODO: check the output
     void many_threads() {
         check(16, 100, 100,
               "int main()\n"
@@ -138,7 +190,7 @@ private:
     }
 
     void many_threads_plist() {
-        const char plistOutput[] = "plist_thread/";
+        const std::string plistOutput = "plist_" + fprefix() + "/";
         ScopedFile plistFile("dummy", "", plistOutput);
 
         check(16, 100, 100,
@@ -146,7 +198,7 @@ private:
               "{\n"
               "  char *a = malloc(10);\n"
               "  return 0;\n"
-              "}", dinit(CheckOptions, $.plistOutput = plistOutput));
+              "}", dinit(CheckOptions, $.plistOutput = plistOutput.c_str()));
     }
 
     void no_errors_more_files() {
@@ -207,7 +259,9 @@ private:
               "  char *a = malloc(10);\n"
               "  return 0;\n"
               "}",
-              dinit(CheckOptions, $.filesList = files));
+              dinit(CheckOptions,
+                    $.quiet = false,
+                        $.filesList = files));
         // TODO: order of "Checking" and "checked" is affected by thread
         /*TODO_ASSERT_EQUALS("Checking " + fprefix() + "_2.cpp ...\n"
                            "1/4 files checked 25% done\n"
@@ -229,8 +283,106 @@ private:
         settings = settingsOld;
     }
 
-    // TODO: test clang-tidy
+    void clangTidy() {
+        // TODO: we currently only invoke it with ImportProject::FileSettings
+        if (!useFS)
+            return;
+
+#ifdef _WIN32
+        const char exe[] = "clang-tidy.exe";
+#else
+        const char exe[] = "clang-tidy";
+#endif
+
+        const std::string file = fprefix() + "_1.cpp";
+        check(2, 1, 0,
+              "int main()\n"
+              "{\n"
+              "  return 0;\n"
+              "}",
+              dinit(CheckOptions,
+                    $.quiet = false,
+                        $.clangTidy = true,
+                        $.executeCommandCalled = true,
+                        $.exe = exe,
+                        $.args = {"-quiet", "-checks=*,-clang-analyzer-*,-llvm*", file, "--"}));
+        ASSERT_EQUALS("Checking " + file + " ...\n", output.str());
+    }
+
+    // TODO: provide data which actually shows values above 0
+
+    // TODO: should this be logged only once like summary?
+    void showtime_top5_file() {
+        REDIRECT; // should not cause TSAN failures as the showtime logging is synchronized
+        check(2, 2, 0,
+              "int main() {}",
+              dinit(CheckOptions,
+                    $.showtime = SHOWTIME_MODES::SHOWTIME_TOP5_FILE));
+        // for each file: top5 results + overall + empty line
+        const std::string output_s = GET_REDIRECT_OUTPUT;
+        // for each file: top5 results + overall + empty line
+        ASSERT_EQUALS((5 + 1 + 1) * 2, cppcheck::count_all_of(output_s, '\n'));
+    }
+
+    void showtime_top5_summary() {
+        REDIRECT;
+        check(2, 2, 0,
+              "int main() {}",
+              dinit(CheckOptions,
+                    $.showtime = SHOWTIME_MODES::SHOWTIME_TOP5_SUMMARY));
+        const std::string output_s = GET_REDIRECT_OUTPUT;
+        // once: top5 results + overall + empty line
+        ASSERT_EQUALS(5 + 1 + 1, cppcheck::count_all_of(output_s, '\n'));
+        // should only report the top5 once
+        ASSERT(output_s.find("1 result(s)") == std::string::npos);
+        ASSERT(output_s.find("2 result(s)") != std::string::npos);
+    }
+
+    void showtime_file() {
+        REDIRECT; // should not cause TSAN failures as the showtime logging is synchronized
+        check(2, 2, 0,
+              "int main() {}",
+              dinit(CheckOptions,
+                    $.showtime = SHOWTIME_MODES::SHOWTIME_FILE));
+        const std::string output_s = GET_REDIRECT_OUTPUT;
+        ASSERT_EQUALS(2, cppcheck::count_all_of(output_s, "Overall time:"));
+    }
+
+    void showtime_summary() {
+        REDIRECT; // should not cause TSAN failures as the showtime logging is synchronized
+        check(2, 2, 0,
+              "int main() {}",
+              dinit(CheckOptions,
+                    $.showtime = SHOWTIME_MODES::SHOWTIME_SUMMARY));
+        const std::string output_s = GET_REDIRECT_OUTPUT;
+        // should only report the actual summary once
+        ASSERT(output_s.find("1 result(s)") == std::string::npos);
+        ASSERT(output_s.find("2 result(s)") != std::string::npos);
+    }
+
+    void showtime_file_total() {
+        REDIRECT; // should not cause TSAN failures as the showtime logging is synchronized
+        check(2, 2, 0,
+              "int main() {}",
+              dinit(CheckOptions,
+                    $.showtime = SHOWTIME_MODES::SHOWTIME_FILE_TOTAL));
+        const std::string output_s = GET_REDIRECT_OUTPUT;
+        ASSERT(output_s.find("Check time: " + fprefix() + "_1.cpp: ") != std::string::npos);
+        ASSERT(output_s.find("Check time: " + fprefix() + "_2.cpp: ") != std::string::npos);
+    }
+
     // TODO: test whole program analysis
 };
 
-REGISTER_TEST(TestThreadExecutor)
+class TestThreadExecutorFiles : public TestThreadExecutorBase {
+public:
+    TestThreadExecutorFiles() : TestThreadExecutorBase("TestThreadExecutorFiles", false) {}
+};
+
+class TestThreadExecutorFS : public TestThreadExecutorBase {
+public:
+    TestThreadExecutorFS() : TestThreadExecutorBase("TestThreadExecutorFS", true) {}
+};
+
+REGISTER_TEST(TestThreadExecutorFiles)
+REGISTER_TEST(TestThreadExecutorFS)

@@ -18,6 +18,7 @@
 
 
 #include "errortypes.h"
+#include "helpers.h"
 #include "platform.h"
 #include "settings.h"
 #include "fixture.h"
@@ -25,14 +26,9 @@
 #include "tokenize.h"
 #include "utils.h"
 
-#include <simplecpp.h>
-
-#include <map>
 #include <sstream> // IWYU pragma: keep
 #include <string>
-#include <utility>
 #include <vector>
-
 
 class TestSimplifyUsing : public TestFixture {
 public:
@@ -71,6 +67,7 @@ private:
         TEST_CASE(simplifyUsing26); // #11090
         TEST_CASE(simplifyUsing27);
         TEST_CASE(simplifyUsing28);
+        TEST_CASE(simplifyUsing29);
 
         TEST_CASE(simplifyUsing8970);
         TEST_CASE(simplifyUsing8971);
@@ -105,15 +102,8 @@ private:
         Tokenizer tokenizer(&settings, this);
 
         if (preprocess) {
-            std::vector<std::string> files{ "test.cpp" };
-            std::istringstream istr(code);
-            const simplecpp::TokenList tokens1(istr, files, files[0]);
-
-            simplecpp::TokenList tokens2(files);
-            std::map<std::string, simplecpp::TokenList*> filedata;
-            simplecpp::preprocess(tokens2, tokens1, files, filedata, simplecpp::DUI());
-
-            tokenizer.createTokens(std::move(tokens2));
+            std::vector<std::string> files(1, "test.cpp");
+            PreprocessorHelper::preprocess(code, files, tokenizer);
         }
 
         std::istringstream istr(code);
@@ -680,6 +670,14 @@ private:
                             "    T* p{ new T };\n"
                             "}\n";
         const char expected[] = "void f ( ) { int * p { new int } ; }";
+        ASSERT_EQUALS(expected, tok(code, cppcheck::Platform::Type::Native, /*debugwarnings*/ true));
+        ASSERT_EQUALS("", errout.str());
+    }
+
+    void simplifyUsing29() { // #11981
+        const char code[] = "using T = int*;\n"
+                            "void f(T = T()) {}\n";
+        const char expected[] = "void f ( int * = ( int * ) 0 ) { }";
         ASSERT_EQUALS(expected, tok(code, cppcheck::Platform::Type::Native, /*debugwarnings*/ true));
         ASSERT_EQUALS("", errout.str());
     }

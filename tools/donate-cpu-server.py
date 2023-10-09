@@ -26,7 +26,7 @@ from urllib.parse import urlparse
 # Version scheme (MAJOR.MINOR.PATCH) should orientate on "Semantic Versioning" https://semver.org/
 # Every change in this script should result in increasing the version number accordingly (exceptions may be cosmetic
 # changes)
-SERVER_VERSION = "1.3.42"
+SERVER_VERSION = "1.3.46"
 
 OLD_VERSION = '2.12.0'
 
@@ -111,7 +111,10 @@ def overviewReport() -> str:
     #html += '<a href="head-valueFlowBailout">valueFlowBailout</a><br>\n'
     #html += '<a href="head-bailoutUninitVar">bailoutUninitVar</a><br>\n'
     #html += '<a href="head-symbolDatabaseWarning">symbolDatabaseWarning</a><br>\n'
+    html += '<br>\n'
+    html += 'Custom reports:<br>\n'
     html += '<a href="value_flow_bailout_incomplete_var.html">valueFlowBailoutIncompleteVar report</a><br>\n'
+    html += '<a href="unknown_macro.html">unknownMacro report</a><br>\n'
     html += '<br>\n'
     html += 'Important errors:<br>\n'
     html += '<a href="head-cppcheckError">cppcheckError</a><br>\n'
@@ -598,11 +601,10 @@ def summaryReport(resultsPath: str, name: str, prefix: str, marker: str) -> str:
             if line.startswith(marker):
                 inResults = True
                 continue
-            if line.startswith('diff:'):
-                if inResults:
-                    break
             if not inResults:
                 continue
+            if line.startswith('diff:'):
+                break
             if not line.endswith(']'):
                 continue
             if ': note: ' in line:
@@ -653,15 +655,23 @@ def messageIdReport(resultPath: str, marker: str, messageId: str, query_params: 
         url = None
         inResults = False
         for line in open(filename, 'rt'):
+            if line.startswith('cppcheck: '):
+                if OLD_VERSION not in line:
+                    # Package results seem to be too old, skip
+                    break
+                else:
+                    # Current package, parse on
+                    continue
             if line.startswith('ftp://'):
                 url = line
-            elif line.startswith(marker):
-                inResults = True
-            elif not inResults:
                 continue
-            elif inResults and line.startswith('diff:'):
+            if not inResults:
+                if line.startswith(marker):
+                    inResults = True
+                continue
+            if line.startswith('diff:'):
                 break
-            elif line.endswith(e):
+            if line.endswith(e):
                 if url:
                     text += url
                     if pkgs is not None:
@@ -698,13 +708,14 @@ def messageIdTodayReport(resultPath: str, messageId: str, marker: str) -> str:
                     break
             if line.startswith('ftp://'):
                 url = line
-            elif line.startswith(marker):
-                inResults = True
-            elif not inResults:
                 continue
-            elif inResults and line.startswith('diff:'):
+            if not inResults:
+                if line.startswith(marker):
+                    inResults = True
+                continue
+            if line.startswith('diff:'):
                 break
-            elif line.endswith(e):
+            if line.endswith(e):
                 if url:
                     text += url
                     url = None
@@ -897,23 +908,31 @@ def timeReportSlow(resultPath: str) -> str:
 
 
 def check_library_report(result_path: str, message_id: str) -> str:
-    if message_id not in ('checkLibraryNoReturn', 'checkLibraryFunction', 'checkLibraryUseIgnore', 'checkLibraryCheckType', 'valueFlowBailoutIncompleteVar'):
+    if message_id not in ('checkLibraryNoReturn', 'checkLibraryFunction', 'checkLibraryUseIgnore', 'checkLibraryCheckType', 'valueFlowBailoutIncompleteVar', 'unknownMacro'):
         error_message = 'Invalid value ' + message_id + ' for message_id parameter.'
         print_ts(error_message)
         return error_message
 
-    if message_id == 'valueFlowBailoutIncompleteVar':
+    if message_id == 'unknownMacro':
+        metric = 'macros'
+        m_column = 'macro'
+        metric_link = 'unknown_macro'
+        start_marker = HEAD_MARKER
+    elif message_id == 'valueFlowBailoutIncompleteVar':
         metric = 'variables'
         m_column = 'Variable'
         metric_link = 'incomplete_var'
+        start_marker = HEAD_MARKER
     elif message_id == 'checkLibraryCheckType':
         metric = 'types'
         m_column = 'Type'
         metric_link = 'check_library'
+        start_marker = INFO_MARKER
     else:
         metric = 'functions'
         m_column = 'Function'
         metric_link = 'check_library'
+        start_marker = INFO_MARKER
 
     functions_shown_max = 5000
     html = '<!DOCTYPE html>\n'
@@ -930,7 +949,7 @@ def check_library_report(result_path: str, message_id: str) -> str:
     for filename in glob.glob(result_path + '/*'):
         if not os.path.isfile(filename) or filename.endswith('.diff'):
             continue
-        info_messages = False
+        in_results = False
         for line in open(filename, 'rt'):
             if line.startswith('cppcheck: '):
                 if OLD_VERSION not in line:
@@ -939,13 +958,17 @@ def check_library_report(result_path: str, message_id: str) -> str:
                 else:
                     # Current package, parse on
                     continue
-            if message_id != 'valueFlowBailoutIncompleteVar':
-                if line == 'info messages:\n':
-                    info_messages = True
-                if not info_messages:
-                    continue
+            if not in_results:
+                if line.startswith(start_marker):
+                    in_results = True
+                continue
+            if line.startswith('diff:'):
+                break
             if line.endswith('[' + message_id + ']\n'):
-                if message_id == 'valueFlowBailoutIncompleteVar':
+                if message_id == 'unknownMacro':
+                    marker = 'required. If '
+                    function_name = line[(line.find(marker) + len(marker)):line.rfind('is a macro') - 1]
+                elif message_id == 'valueFlowBailoutIncompleteVar':
                     marker = 'incomplete variable '
                     function_name = line[(line.find(marker) + len(marker)):line.rfind('[') - 1]
                 elif message_id == 'checkLibraryFunction':
@@ -974,45 +997,62 @@ def check_library_report(result_path: str, message_id: str) -> str:
 
 
 # Lists all checkLibrary* messages regarding the given function name
-def check_library_function_name(result_path: str, function_name: str, is_var: bool=False) -> str:
-    if is_var:
-        id = '[valueFlowBailoutIncompleteVar'
+def check_library_function_name(result_path: str, function_name: str, query_params: dict, nonfunc_id: str='') -> str:
+    pkgs = '' if query_params.get('pkgs') == '1' else None
+    function_name = urllib.parse.unquote_plus(function_name)
+    if nonfunc_id:
+        id = '[' + nonfunc_id
+        marker = HEAD_MARKER
     else:
-        function_name = urllib.parse.unquote_plus(function_name)
         if function_name.endswith('()'):
             id = '[checkLibrary'
         else:
             id = '[checkLibraryCheckType]'
+        marker = INFO_MARKER
     output_lines_list = []
     for filename in glob.glob(result_path + '/*'):
         if not os.path.isfile(filename) or filename.endswith('.diff'):
             continue
-        info_messages = False
-        url = None
+        in_results = False
+        package_url = None
         cppcheck_options = None
         for line in open(filename, 'rt'):
+            if line.startswith('cppcheck: '):
+                if OLD_VERSION not in line:
+                    # Package results seem to be too old, skip
+                    break
+                else:
+                    # Current package, parse on
+                    continue
             if line.startswith('ftp://'):
-                url = line
+                package_url = line
                 continue
             if line.startswith('cppcheck-options:'):
                 cppcheck_options = line
                 continue
-            if not is_var:
-                if line == 'info messages:\n':
-                    info_messages = True
-                    continue
-                if not info_messages:
-                    continue
-            if id in line:
-                if (' ' + function_name + ' ') in line:
-                    if url:
-                        output_lines_list.append(url)
-                        url = None
-                    if cppcheck_options:
-                        output_lines_list.append(cppcheck_options)
-                        cppcheck_options = None
-                    output_lines_list.append(line)
+            if not in_results:
+                if line.startswith(marker):
+                    in_results = True
+                continue
+            if line.startswith('diff:'):
+                break
+            if id not in line:
+                continue
+            if not (' ' + function_name + ' ') in line:
+                continue
+            if pkgs is not None and package_url is not None:
+                pkgs += '{}\n'.format(package_url.strip())
+                break
+            if package_url:
+                output_lines_list.append(package_url)
+                package_url = None
+            if cppcheck_options:
+                output_lines_list.append(cppcheck_options)
+                cppcheck_options = None
+            output_lines_list.append(line)
 
+    if pkgs is not None:
+        return pkgs
     return ''.join(output_lines_list)
 
 
@@ -1133,14 +1173,21 @@ class HttpClientThread(Thread):
                 httpGetResponse(self.connection, text, 'text/html')
             elif url.startswith('/check_library-'):
                 function_name = url[len('/check_library-'):]
-                text = check_library_function_name(self.infoPath, function_name)
+                text = check_library_function_name(self.infoPath, function_name, queryParams)
                 httpGetResponse(self.connection, text, 'text/plain')
             elif url == '/value_flow_bailout_incomplete_var.html':
                 text = check_library_report(self.resultPath, message_id='valueFlowBailoutIncompleteVar')
                 httpGetResponse(self.connection, text, 'text/html')
+            elif url == '/unknown_macro.html':
+                text = check_library_report(self.resultPath, message_id='unknownMacro')
+                httpGetResponse(self.connection, text, 'text/html')
             elif url.startswith('/incomplete_var-'):
                 var_name = url[len('/incomplete_var-'):]
-                text = check_library_function_name(self.resultPath, var_name, True)
+                text = check_library_function_name(self.resultPath, var_name, queryParams, nonfunc_id='valueFlowBailoutIncompleteVar')
+                httpGetResponse(self.connection, text, 'text/plain')
+            elif url.startswith('/unknown_macro-'):
+                var_name = url[len('/unknown_macro-'):]
+                text = check_library_function_name(self.resultPath, var_name, queryParams, nonfunc_id='unknownMacro')
                 httpGetResponse(self.connection, text, 'text/plain')
             else:
                 filename = resultPath + url

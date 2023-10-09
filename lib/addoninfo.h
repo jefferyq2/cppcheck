@@ -16,32 +16,23 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
-
-#include <map>
-#include <string>
-#include <vector>
+#ifndef addonInfoH
+#define addonInfoH
 
 #include "config.h"
 
-namespace checkers {
-    extern CPPCHECKLIB const std::map<std::string, std::string> allCheckers;
-    extern CPPCHECKLIB const std::map<std::string, std::string> premiumCheckers;
+#include <string>
 
-    struct CPPCHECKLIB MisraInfo {
-        int a;
-        int b;
-        const char* str;
-        int amendment;
-    };
+struct CPPCHECKLIB AddonInfo {
+    std::string name;
+    std::string scriptFile; // addon script
+    std::string executable; // addon executable
+    std::string args;       // special extra arguments
+    std::string python;     // script interpreter
+    bool ctu = false;
+    std::string runScript;
 
-    extern CPPCHECKLIB const char Req[]; // = "Required";
-    extern CPPCHECKLIB const char Adv[]; // = "Advisory";
-    extern CPPCHECKLIB const char Man[]; // = "Mandatory";
+    std::string getAddonInfo(const std::string &fileName, const std::string &exename);
+};
 
-    extern CPPCHECKLIB const std::vector<MisraInfo> misraC2012Rules;
-
-    extern CPPCHECKLIB const std::map<std::string, std::string> misraRuleSeverity;
-}
-
-
+#endif // addonInfoH

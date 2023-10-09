@@ -234,14 +234,6 @@ TemplateSimplifier::TokenAndName::TokenAndName(const TokenAndName& other) :
         mToken->templateSimplifierPointer(this);
 }
 
-TemplateSimplifier::TokenAndName::TokenAndName(TokenAndName&& other) NOEXCEPT :
-    mToken(other.mToken), mScope(std::move(other.mScope)), mName(std::move(other.mName)), mFullName(std::move(other.mFullName)),
-    mNameToken(other.mNameToken), mParamEnd(other.mParamEnd), mFlags(other.mFlags)
-{
-    if (mToken)
-        mToken->templateSimplifierPointer(this);
-}
-
 TemplateSimplifier::TokenAndName::~TokenAndName()
 {
     if (mToken && mToken->templateSimplifierPointers())
@@ -2507,9 +2499,9 @@ void TemplateSimplifier::simplifyTemplateArgs(Token *start, const Token *end, st
                        MathLib::isInt(tok->strAt(2))) {
                 if ((Token::Match(tok->previous(), "(|&&|%oror%|,") || tok == start) &&
                     (Token::Match(tok->tokAt(3), ")|&&|%oror%|?") || tok->tokAt(3) == end)) {
-                    const MathLib::bigint op1(MathLib::toLongNumber(tok->str()));
+                    const MathLib::bigint op1(MathLib::toBigNumber(tok->str()));
                     const std::string &cmp(tok->next()->str());
-                    const MathLib::bigint op2(MathLib::toLongNumber(tok->strAt(2)));
+                    const MathLib::bigint op2(MathLib::toBigNumber(tok->strAt(2)));
 
                     std::string result;
 
@@ -2680,7 +2672,7 @@ bool TemplateSimplifier::simplifyCalculations(Token* frontToken, const Token *ba
 
         if (validTokenEnd(bounded, tok, backToken, 3) &&
             Token::Match(tok->previous(), "(|&&|%oror% %char% %comp% %num% &&|%oror%|)")) {
-            tok->str(std::to_string(MathLib::toLongNumber(tok->str())));
+            tok->str(std::to_string(MathLib::toBigNumber(tok->str())));
         }
 
         if (validTokenEnd(bounded, tok, backToken, 5) &&
@@ -2876,9 +2868,9 @@ bool TemplateSimplifier::simplifyCalculations(Token* frontToken, const Token *ba
                 if (validTokenStart(bounded, tok, frontToken, -1) &&
                     Token::Match(tok->previous(), "(|&&|%oror%") &&
                     Token::Match(tok->tokAt(3), ")|&&|%oror%|?")) {
-                    const MathLib::bigint op1(MathLib::toLongNumber(tok->str()));
+                    const MathLib::bigint op1(MathLib::toBigNumber(tok->str()));
                     const std::string &cmp(tok->next()->str());
-                    const MathLib::bigint op2(MathLib::toLongNumber(tok->strAt(2)));
+                    const MathLib::bigint op2(MathLib::toBigNumber(tok->strAt(2)));
 
                     std::string result;
 
@@ -3724,9 +3716,7 @@ void TemplateSimplifier::printOut(const std::string & text) const
     }
 }
 
-void TemplateSimplifier::simplifyTemplates(
-    const std::time_t maxtime,
-    bool &codeWithTemplates)
+void TemplateSimplifier::simplifyTemplates(const std::time_t maxtime)
 {
     // convert "sizeof ..." to "sizeof..."
     for (Token *tok = mTokenList.front(); tok; tok = tok->next()) {
@@ -3796,10 +3786,9 @@ void TemplateSimplifier::simplifyTemplates(
             mTemplateNamePos.clear();
         }
 
-        const bool hasTemplates = getTemplateDeclarations();
+        getTemplateDeclarations();
 
         if (passCount == 0) {
-            codeWithTemplates = hasTemplates;
             mDump.clear();
             for (const TokenAndName& t: mTemplateDeclarations)
                 mDump += t.dump(mTokenizer.list.getFiles());

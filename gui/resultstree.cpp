@@ -49,7 +49,6 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QModelIndex>
-#include <QModelIndexList>
 #include <QProcess>
 #include <QSet>
 #include <QSettings>
@@ -721,7 +720,7 @@ void ResultsTree::contextMenuEvent(QContextMenuEvent * e)
     }
 }
 
-void ResultsTree::startApplication(QStandardItem *target, int application)
+void ResultsTree::startApplication(const QStandardItem *target, int application)
 {
     //If there are no applications specified, tell the user about it
     if (mApplications->getApplicationCount() == 0) {
@@ -1132,7 +1131,7 @@ void ResultsTree::quickStartApplication(const QModelIndex &index)
     startApplication(mModel.itemFromIndex(index));
 }
 
-QString ResultsTree::getFilePath(QStandardItem *target, bool fullPath)
+QString ResultsTree::getFilePath(const QStandardItem *target, bool fullPath)
 {
     if (target) {
         // Make sure we are working with the first column

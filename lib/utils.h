@@ -276,6 +276,7 @@ T strToInt(const std::string& str)
  * \return size of array
  * */
 template<typename T, int size>
+// cppcheck-suppress unusedFunction - only used in conditional code
 std::size_t getArrayLength(const T (& /*unused*/)[size])
 {
     return size;
@@ -328,6 +329,20 @@ static inline std::string id_string(const void* p)
 static inline const char* bool_to_string(bool b)
 {
     return b ? "true" : "false";
+}
+
+namespace cppcheck
+{
+    NORETURN inline void unreachable()
+    {
+#if defined(__GNUC__)
+        __builtin_unreachable();
+#elif defined(_MSC_VER)
+        __assume(false);
+#else
+#error "no unreachable implementation"
+#endif
+    }
 }
 
 #endif

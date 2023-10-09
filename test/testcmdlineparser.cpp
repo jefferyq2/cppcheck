@@ -43,12 +43,56 @@ public:
     {}
 
 private:
+    class CmdLineLoggerTest : public CmdLineLogger
+    {
+    public:
+        CmdLineLoggerTest() = default;
+
+        void printMessage(const std::string &message) override
+        {
+            printInternal("cppcheck: " + message + '\n');
+        }
+
+        void printError(const std::string &message) override
+        {
+            printMessage("error: " + message);
+        }
+
+        std::string str()
+        {
+            std::string s;
+            std::swap(buf, s);
+            return s;
+        }
+
+        void destroy()
+        {
+            if (!buf.empty())
+                throw std::runtime_error("unconsumed messages");
+        }
+
+    private:
+        void printInternal(const std::string &message)
+        {
+            buf += message;
+        }
+
+        std::string buf;
+    };
+
+    std::unique_ptr<CmdLineLoggerTest> logger;
     std::unique_ptr<Settings> settings;
     std::unique_ptr<CmdLineParser> parser;
 
     void prepareTestInternal() override {
+        logger.reset(new CmdLineLoggerTest());
         settings.reset(new Settings());
-        parser.reset(new CmdLineParser(*settings, settings->nomsg, settings->nofail));
+        parser.reset(new CmdLineParser(*logger, *settings, settings->nomsg, settings->nofail));
+    }
+
+    void teardownTestInternal() override {
+        logger->destroy();
+        // TODO: verify that the redirect output is empty
     }
 
     void run() override {
@@ -179,10 +223,8 @@ private:
         TEST_CASE(templatesSelfcheck);
         TEST_CASE(templatesNoPlaceholder);
         TEST_CASE(templateFormatInvalid);
-        TEST_CASE(templateFormatInvalid2);
         TEST_CASE(templateFormatEmpty);
         TEST_CASE(templateLocationInvalid);
-        TEST_CASE(templateLocationInvalid2);
         TEST_CASE(templateLocationEmpty);
         TEST_CASE(xml);
         TEST_CASE(xmlver2);
@@ -191,7 +233,14 @@ private:
         TEST_CASE(xmlverunknown);
         TEST_CASE(xmlverinvalid);
         TEST_CASE(doc);
-        TEST_CASE(showtime);
+        TEST_CASE(showtimeFile);
+        TEST_CASE(showtimeFileTotal);
+        TEST_CASE(showtimeTop5);
+        TEST_CASE(showtimeTop5File);
+        TEST_CASE(showtimeTop5Summary);
+        TEST_CASE(showtimeNone);
+        TEST_CASE(showtimeEmpty);
+        TEST_CASE(showtimeInvalid);
         TEST_CASE(errorlist1);
         TEST_CASE(errorlistverbose1);
         TEST_CASE(errorlistverbose2);
@@ -231,6 +280,13 @@ private:
         TEST_CASE(typedefMaxTimeInvalid2);
         TEST_CASE(templateMaxTime);
         TEST_CASE(templateMaxTime);
+        TEST_CASE(project);
+        TEST_CASE(projectMultiple);
+        TEST_CASE(projectAndSource);
+        TEST_CASE(projectEmpty);
+        TEST_CASE(projectMissing);
+        TEST_CASE(projectNoPaths);
+        TEST_CASE(addon);
 
         TEST_CASE(ignorepaths1);
         TEST_CASE(ignorepaths2);
@@ -258,24 +314,24 @@ private:
         REDIRECT;
         const char * const argv[] = {"cppcheck"};
         ASSERT(parser->parseFromArgs(1, argv));
-        ASSERT_EQUALS(true, parser->getShowHelp());
         ASSERT(startsWith(GET_REDIRECT_OUTPUT, "Cppcheck - A tool for static C/C++ code analysis"));
+        ASSERT_EQUALS("", logger->str());
     }
 
     void helpshort() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "-h"};
         ASSERT(parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS(true, parser->getShowHelp());
         ASSERT(startsWith(GET_REDIRECT_OUTPUT, "Cppcheck - A tool for static C/C++ code analysis"));
+        ASSERT_EQUALS("", logger->str());
     }
 
     void helplong() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--help"};
         ASSERT(parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS(true, parser->getShowHelp());
         ASSERT(startsWith(GET_REDIRECT_OUTPUT, "Cppcheck - A tool for static C/C++ code analysis"));
+        ASSERT_EQUALS("", logger->str());
     }
 
     void showversion() {
@@ -283,7 +339,7 @@ private:
         const char * const argv[] = {"cppcheck", "--version"};
         ASSERT(parser->parseFromArgs(2, argv));
         ASSERT_EQUALS(true, parser->getShowVersion());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT); // version is not actually shown
+        ASSERT_EQUALS("", logger->str()); // version is not actually shown
     }
 
     void onefile() {
@@ -292,7 +348,7 @@ private:
         ASSERT(parser->parseFromArgs(2, argv));
         ASSERT_EQUALS(1, (int)parser->getPathNames().size());
         ASSERT_EQUALS("file.cpp", parser->getPathNames().at(0));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void onepath() {
@@ -301,7 +357,7 @@ private:
         ASSERT(parser->parseFromArgs(2, argv));
         ASSERT_EQUALS(1, (int)parser->getPathNames().size());
         ASSERT_EQUALS("src", parser->getPathNames().at(0));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void optionwithoutfile() {
@@ -309,7 +365,7 @@ private:
         const char * const argv[] = {"cppcheck", "-v"};
         ASSERT_EQUALS(false, parser->parseFromArgs(2, argv));
         ASSERT_EQUALS(0, (int)parser->getPathNames().size());
-        ASSERT_EQUALS("cppcheck: error: no C or C++ source files found.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: no C or C++ source files found.\n", logger->str());
     }
 
     void verboseshort() {
@@ -318,7 +374,7 @@ private:
         settings->verbose = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->verbose);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void verboselong() {
@@ -327,7 +383,7 @@ private:
         settings->verbose = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->verbose);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void debugSimplified() {
@@ -336,7 +392,7 @@ private:
         settings->debugSimplified = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->debugSimplified);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void debugwarnings() {
@@ -345,7 +401,7 @@ private:
         settings->debugwarnings = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->debugwarnings);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void forceshort() {
@@ -354,7 +410,7 @@ private:
         settings->force = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->force);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void forcelong() {
@@ -363,7 +419,7 @@ private:
         settings->force = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->force);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void relativePaths1() {
@@ -372,7 +428,7 @@ private:
         const char * const argv[] = {"cppcheck", "-rp", "file.cpp"};
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->relativePaths);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void relativePaths2() {
@@ -381,7 +437,7 @@ private:
         const char * const argv[] = {"cppcheck", "--relative-paths", "file.cpp"};
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->relativePaths);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void relativePaths3() {
@@ -394,7 +450,7 @@ private:
         ASSERT_EQUALS(2, settings->basePaths.size());
         ASSERT_EQUALS("C:/foo", settings->basePaths[0]);
         ASSERT_EQUALS("C:/bar", settings->basePaths[1]);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void relativePaths4() {
@@ -408,7 +464,7 @@ private:
         ASSERT_EQUALS(2, settings->basePaths.size());
         ASSERT_EQUALS("C:/foo", settings->basePaths[0]);
         ASSERT_EQUALS("C:/bar", settings->basePaths[1]);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void quietshort() {
@@ -417,7 +473,7 @@ private:
         settings->quiet = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->quiet);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void quietlong() {
@@ -426,7 +482,7 @@ private:
         settings->quiet = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->quiet);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void defines_noarg() {
@@ -434,7 +490,7 @@ private:
         const char * const argv[] = {"cppcheck", "-D"};
         // Fails since -D has no param
         ASSERT_EQUALS(false, parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '-D' is missing.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '-D' is missing.\n", logger->str());
     }
 
     void defines_noarg2() {
@@ -442,7 +498,7 @@ private:
         const char * const argv[] = {"cppcheck", "-D", "-v", "file.cpp"};
         // Fails since -D has no param
         ASSERT_EQUALS(false, parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '-D' is missing.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '-D' is missing.\n", logger->str());
     }
 
     void defines_noarg3() {
@@ -450,7 +506,7 @@ private:
         const char * const argv[] = {"cppcheck", "-D", "--quiet", "file.cpp"};
         // Fails since -D has no param
         ASSERT_EQUALS(false, parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '-D' is missing.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '-D' is missing.\n", logger->str());
     }
 
     void defines() {
@@ -459,7 +515,7 @@ private:
         settings->userDefines.clear();
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS("_WIN32=1", settings->userDefines);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void defines2() {
@@ -468,7 +524,7 @@ private:
         settings->userDefines.clear();
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS("_WIN32=1;NODEBUG=1", settings->userDefines);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void defines3() {
@@ -477,7 +533,7 @@ private:
         settings->userDefines.clear();
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS("DEBUG=1", settings->userDefines);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void defines4() {
@@ -486,7 +542,7 @@ private:
         settings->userDefines.clear();
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS("DEBUG=", settings->userDefines);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void enforceLanguage1() {
@@ -495,7 +551,7 @@ private:
         settings->enforcedLang = Settings::Language::None;
         ASSERT(parser->parseFromArgs(2, argv));
         ASSERT_EQUALS(Settings::Language::None, settings->enforcedLang);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void enforceLanguage2() {
@@ -504,21 +560,21 @@ private:
         settings->enforcedLang = Settings::Language::None;
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS(Settings::Language::CPP, settings->enforcedLang);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void enforceLanguage3() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "-x"};
         ASSERT(!parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: no language given to '-x' option.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: no language given to '-x' option.\n", logger->str());
     }
 
     void enforceLanguage4() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "-x", "--inconclusive", "file.cpp"};
         ASSERT(!parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: no language given to '-x' option.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: no language given to '-x' option.\n", logger->str());
     }
 
     void enforceLanguage5() {
@@ -527,7 +583,7 @@ private:
         settings->enforcedLang = Settings::Language::None;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(Settings::Language::CPP, settings->enforcedLang);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void enforceLanguage6() {
@@ -536,14 +592,14 @@ private:
         settings->enforcedLang = Settings::Language::None;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(Settings::Language::C, settings->enforcedLang);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void enforceLanguage7() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--language=unknownLanguage", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: unknown language 'unknownLanguage' enforced.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unknown language 'unknownLanguage' enforced.\n", logger->str());
     }
 
     void includesnopath() {
@@ -551,7 +607,7 @@ private:
         const char * const argv[] = {"cppcheck", "-I"};
         // Fails since -I has no param
         ASSERT_EQUALS(false, parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '-I' is missing.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '-I' is missing.\n", logger->str());
     }
 
     void includes() {
@@ -560,7 +616,7 @@ private:
         settings->includePaths.clear();
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS("include/", settings->includePaths.front());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void includesslash() {
@@ -569,7 +625,7 @@ private:
         settings->includePaths.clear();
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS("include/", settings->includePaths.front());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void includesbackslash() {
@@ -578,7 +634,7 @@ private:
         settings->includePaths.clear();
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS("include/", settings->includePaths.front());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void includesnospace() {
@@ -587,7 +643,7 @@ private:
         settings->includePaths.clear();
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS("include/", settings->includePaths.front());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void includes2() {
@@ -598,7 +654,7 @@ private:
         ASSERT_EQUALS("include/", settings->includePaths.front());
         settings->includePaths.pop_front();
         ASSERT_EQUALS("framework/", settings->includePaths.front());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void includesFile() {
@@ -612,14 +668,14 @@ private:
         auto it = settings->includePaths.cbegin();
         ASSERT_EQUALS("path/sub/", *it++);
         ASSERT_EQUALS("path2/sub1/", *it);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void includesFileNoFile() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--includes-file=fileThatDoesNotExist.txt", "file.cpp"};
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: unable to open includes file at 'fileThatDoesNotExist.txt'\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unable to open includes file at 'fileThatDoesNotExist.txt'\n", logger->str());
     }
 
     void configExcludesFile() {
@@ -634,14 +690,14 @@ private:
         auto it = settings->configExcludePaths.cbegin();
         ASSERT_EQUALS("path/sub/", *it++);
         ASSERT_EQUALS("path2/sub1/", *it);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void configExcludesFileNoFile() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--config-excludes-file=fileThatDoesNotExist.txt", "file.cpp"};
         ASSERT_EQUALS( false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: unable to open config excludes file at 'fileThatDoesNotExist.txt'\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unable to open config excludes file at 'fileThatDoesNotExist.txt'\n", logger->str());
     }
 
     void enabledAll() {
@@ -653,7 +709,7 @@ private:
         ASSERT(settings->checks.isEnabled(Checks::unusedFunction));
         ASSERT(settings->checks.isEnabled(Checks::missingInclude));
         ASSERT(!settings->checks.isEnabled(Checks::internalCheck));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void enabledStyle() {
@@ -666,7 +722,7 @@ private:
         ASSERT(settings->severity.isEnabled(Severity::portability));
         ASSERT(!settings->checks.isEnabled(Checks::unusedFunction));
         ASSERT(!settings->checks.isEnabled(Checks::internalCheck));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void enabledPerformance() {
@@ -679,7 +735,7 @@ private:
         ASSERT(!settings->severity.isEnabled(Severity::portability));
         ASSERT(!settings->checks.isEnabled(Checks::unusedFunction));
         ASSERT(!settings->checks.isEnabled(Checks::missingInclude));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void enabledPortability() {
@@ -692,7 +748,7 @@ private:
         ASSERT(settings->severity.isEnabled(Severity::portability));
         ASSERT(!settings->checks.isEnabled(Checks::unusedFunction));
         ASSERT(!settings->checks.isEnabled(Checks::missingInclude));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void enabledInformation() {
@@ -701,7 +757,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->severity.isEnabled(Severity::information));
         ASSERT(settings->checks.isEnabled(Checks::missingInclude));
-        ASSERT_EQUALS("cppcheck: '--enable=information' will no longer implicitly enable 'missingInclude' starting with 2.16. Please enable it explicitly if you require it.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: '--enable=information' will no longer implicitly enable 'missingInclude' starting with 2.16. Please enable it explicitly if you require it.\n", logger->str());
     }
 
     void enabledUnusedFunction() {
@@ -709,7 +765,7 @@ private:
         const char * const argv[] = {"cppcheck", "--enable=unusedFunction", "file.cpp"};
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->checks.isEnabled(Checks::unusedFunction));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void enabledMissingInclude() {
@@ -717,7 +773,7 @@ private:
         const char * const argv[] = {"cppcheck", "--enable=missingInclude", "file.cpp"};
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->checks.isEnabled(Checks::missingInclude));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
 #ifdef CHECK_INTERNAL
@@ -726,7 +782,7 @@ private:
         const char * const argv[] = {"cppcheck", "--enable=internal", "file.cpp"};
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->checks.isEnabled(Checks::internalCheck));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 #endif
 
@@ -740,28 +796,28 @@ private:
         ASSERT(settings->severity.isEnabled(Severity::portability));
         ASSERT(!settings->checks.isEnabled(Checks::unusedFunction));
         ASSERT(settings->checks.isEnabled(Checks::missingInclude));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void enabledInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--enable=warning,missingIncludeSystem,style", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: --enable parameter with the unknown name 'missingIncludeSystem'\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: --enable parameter with the unknown name 'missingIncludeSystem'\n", logger->str());
     }
 
     void enabledError() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--enable=error", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: --enable parameter with the unknown name 'error'\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: --enable parameter with the unknown name 'error'\n", logger->str());
     }
 
     void enabledEmpty() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--enable=", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: --enable parameter is empty\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: --enable parameter is empty\n", logger->str());
     }
 
 
@@ -780,7 +836,7 @@ private:
         ASSERT_EQUALS(false, settings->checks.isEnabled(Checks::unusedFunction));
         ASSERT_EQUALS(false, settings->checks.isEnabled(Checks::missingInclude));
         ASSERT_EQUALS(false, settings->checks.isEnabled(Checks::internalCheck));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void disableMultiple() {
@@ -798,7 +854,7 @@ private:
         ASSERT_EQUALS(false, settings->checks.isEnabled(Checks::unusedFunction));
         ASSERT_EQUALS(true, settings->checks.isEnabled(Checks::missingInclude));
         ASSERT_EQUALS(false, settings->checks.isEnabled(Checks::internalCheck));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     // make sure the implied "style" checks are not added when "--enable=style" is specified
@@ -817,7 +873,7 @@ private:
         ASSERT_EQUALS(true, settings->checks.isEnabled(Checks::unusedFunction));
         ASSERT_EQUALS(false, settings->checks.isEnabled(Checks::missingInclude));
         ASSERT_EQUALS(false, settings->checks.isEnabled(Checks::internalCheck));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void disableInformationPartial() {
@@ -826,7 +882,7 @@ private:
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT(settings->severity.isEnabled(Severity::information));
         ASSERT(!settings->checks.isEnabled(Checks::missingInclude));
-        ASSERT_EQUALS("cppcheck: '--enable=information' will no longer implicitly enable 'missingInclude' starting with 2.16. Please enable it explicitly if you require it.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: '--enable=information' will no longer implicitly enable 'missingInclude' starting with 2.16. Please enable it explicitly if you require it.\n", logger->str());
     }
 
     void disableInformationPartial2() {
@@ -835,28 +891,28 @@ private:
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT(!settings->severity.isEnabled(Severity::information));
         ASSERT(settings->checks.isEnabled(Checks::missingInclude));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void disableInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--disable=leaks", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: --disable parameter with the unknown name 'leaks'\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: --disable parameter with the unknown name 'leaks'\n", logger->str());
     }
 
     void disableError() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--disable=error", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: --disable parameter with the unknown name 'error'\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: --disable parameter with the unknown name 'error'\n", logger->str());
     }
 
     void disableEmpty() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--disable=", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: --disable parameter is empty\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: --disable parameter is empty\n", logger->str());
     }
 
     void inconclusive() {
@@ -865,7 +921,7 @@ private:
         settings->certainty.clear();
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->certainty.isEnabled(Certainty::inconclusive));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void errorExitcode() {
@@ -874,7 +930,7 @@ private:
         settings->exitCode = 0;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(5, settings->exitCode);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void errorExitcodeMissing() {
@@ -882,7 +938,7 @@ private:
         const char * const argv[] = {"cppcheck", "--error-exitcode=", "file.cpp"};
         // Fails since exit code not given
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--error-exitcode=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--error-exitcode=' is not valid - not an integer.\n", logger->str());
     }
 
     void errorExitcodeStr() {
@@ -890,14 +946,14 @@ private:
         const char * const argv[] = {"cppcheck", "--error-exitcode=foo", "file.cpp"};
         // Fails since invalid exit code
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--error-exitcode=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--error-exitcode=' is not valid - not an integer.\n", logger->str());
     }
 
     void exitcodeSuppressionsOld() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--exitcode-suppressions", "suppr.txt", "file.cpp"};
         ASSERT_EQUALS(false, parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--exitcode-suppressions\".\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--exitcode-suppressions\".\n", logger->str());
     }
 
     void exitcodeSuppressions() {
@@ -911,14 +967,14 @@ private:
         auto it = settings->nofail.getSuppressions().cbegin();
         ASSERT_EQUALS("uninitvar", (*it++).errorId);
         ASSERT_EQUALS("unusedFunction", (*it).errorId);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void exitcodeSuppressionsNoFile() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--exitcode-suppressions", "file.cpp"};
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--exitcode-suppressions\".\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--exitcode-suppressions\".\n", logger->str());
     }
 
     void fileList() {
@@ -933,14 +989,14 @@ private:
         ASSERT_EQUALS("file1.c", *it++);
         ASSERT_EQUALS("file2.cpp", *it++);
         ASSERT_EQUALS("file.cpp", *it);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void fileListNoFile() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--file-list=files.txt", "file.cpp"};
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: couldn't open the file: \"files.txt\".\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: couldn't open the file: \"files.txt\".\n", logger->str());
     }
 
     /*    void fileListStdin() {
@@ -949,14 +1005,14 @@ private:
             REDIRECT;
             const char * const argv[] = {"cppcheck", "--file-list=-", "file.cpp"};
             TODO_ASSERT_EQUALS(true, false, parser->parseFromArgs(3, argv));
-            TODO_ASSERT_EQUALS("", "", GET_REDIRECT_OUTPUT);
+            TODO_ASSERT_EQUALS("", "", logger->str());
         } */
 
     void fileListInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--file-list", "files.txt", "file.cpp"};
         ASSERT_EQUALS(false, parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--file-list\".\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--file-list\".\n", logger->str());
     }
 
     void inlineSuppr() {
@@ -965,7 +1021,7 @@ private:
         settings->inlineSuppressions = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->inlineSuppressions);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void jobs() {
@@ -974,7 +1030,7 @@ private:
         settings->jobs = 0;
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS(3, settings->jobs);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void jobs2() {
@@ -983,7 +1039,7 @@ private:
         settings->jobs = 0;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(3, settings->jobs);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void jobsMissingCount() {
@@ -991,7 +1047,7 @@ private:
         const char * const argv[] = {"cppcheck", "-j", "file.cpp"};
         // Fails since -j is missing thread count
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '-j' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '-j' is not valid - not an integer.\n", logger->str());
     }
 
     void jobsInvalid() {
@@ -999,21 +1055,21 @@ private:
         const char * const argv[] = {"cppcheck", "-j", "e", "file.cpp"};
         // Fails since invalid count given for -j
         ASSERT_EQUALS(false, parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '-j' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '-j' is not valid - not an integer.\n", logger->str());
     }
 
     void jobsNoJobs() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "-j0", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument for '-j' must be greater than 0.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument for '-j' must be greater than 0.\n", logger->str());
     }
 
     void jobsTooBig() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "-j1025", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument for '-j' is allowed to be 1024 at max.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument for '-j' is allowed to be 1024 at max.\n", logger->str());
     }
 
     void maxConfigs() {
@@ -1024,7 +1080,7 @@ private:
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS(12, settings->maxConfigs);
         ASSERT_EQUALS(false, settings->force);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void maxConfigsMissingCount() {
@@ -1032,7 +1088,7 @@ private:
         const char * const argv[] = {"cppcheck", "--max-configs=", "file.cpp"};
         // Fails since --max-configs= is missing limit
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--max-configs=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--max-configs=' is not valid - not an integer.\n", logger->str());
     }
 
     void maxConfigsInvalid() {
@@ -1040,7 +1096,7 @@ private:
         const char * const argv[] = {"cppcheck", "--max-configs=e", "file.cpp"};
         // Fails since invalid count given for --max-configs=
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--max-configs=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--max-configs=' is not valid - not an integer.\n", logger->str());
     }
 
     void maxConfigsTooSmall() {
@@ -1048,7 +1104,7 @@ private:
         const char * const argv[] = {"cppcheck", "--max-configs=0", "file.cpp"};
         // Fails since limit must be greater than 0
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--max-configs=' must be greater than 0.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--max-configs=' must be greater than 0.\n", logger->str());
     }
 
     void reportProgress1() {
@@ -1057,7 +1113,7 @@ private:
         settings->reportProgress = -1;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(10, settings->reportProgress);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void reportProgress2() {
@@ -1065,7 +1121,7 @@ private:
         const char * const argv[] = {"cppcheck", "--report-progress=", "file.cpp"};
         settings->reportProgress = -1;
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--report-progress=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--report-progress=' is not valid - not an integer.\n", logger->str());
     }
 
     void reportProgress3() {
@@ -1073,7 +1129,7 @@ private:
         const char * const argv[] = {"cppcheck", "--report-progress=-1", "file.cpp"};
         settings->reportProgress = -1;
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--report-progress=' needs to be a positive integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--report-progress=' needs to be a positive integer.\n", logger->str());
     }
 
     void reportProgress4() {
@@ -1082,7 +1138,7 @@ private:
         settings->reportProgress = -1;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(0, settings->reportProgress);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void reportProgress5() {
@@ -1091,7 +1147,7 @@ private:
         settings->reportProgress = -1;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(1, settings->reportProgress);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void stdc99() {
@@ -1100,7 +1156,7 @@ private:
         settings->standards.c = Standards::C89;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->standards.c == Standards::C99);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void stdcpp11() {
@@ -1109,21 +1165,21 @@ private:
         settings->standards.cpp = Standards::CPP03;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->standards.cpp == Standards::CPP11);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void stdunknown1() {
         REDIRECT;
         const char *const argv[] = {"cppcheck", "--std=d++11", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: unknown --std value 'd++11'\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unknown --std value 'd++11'\n", logger->str());
     }
 
     void stdunknown2() {
         REDIRECT;
         const char *const argv[] = {"cppcheck", "--std=cplusplus11", "file.cpp"};
         TODO_ASSERT(!parser->parseFromArgs(3, argv));
-        TODO_ASSERT_EQUALS("cppcheck: error: unknown --std value 'cplusplus11'\n", "", GET_REDIRECT_OUTPUT);
+        TODO_ASSERT_EQUALS("cppcheck: error: unknown --std value 'cplusplus11'\n", "", logger->str());
     }
 
     void platformWin64() {
@@ -1132,7 +1188,7 @@ private:
         ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(cppcheck::Platform::Type::Win64, settings->platform.type);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void platformWin32A() {
@@ -1141,7 +1197,7 @@ private:
         ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(cppcheck::Platform::Type::Win32A, settings->platform.type);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void platformWin32W() {
@@ -1150,7 +1206,7 @@ private:
         ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(cppcheck::Platform::Type::Win32W, settings->platform.type);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void platformUnix32() {
@@ -1159,7 +1215,7 @@ private:
         ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(cppcheck::Platform::Type::Unix32, settings->platform.type);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void platformUnix32Unsigned() {
@@ -1168,7 +1224,7 @@ private:
         ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(cppcheck::Platform::Type::Unix32, settings->platform.type);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void platformUnix64() {
@@ -1177,7 +1233,7 @@ private:
         ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(cppcheck::Platform::Type::Unix64, settings->platform.type);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void platformUnix64Unsigned() {
@@ -1186,7 +1242,7 @@ private:
         ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(cppcheck::Platform::Type::Unix64, settings->platform.type);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void platformNative() {
@@ -1195,7 +1251,7 @@ private:
         ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(cppcheck::Platform::Type::Native, settings->platform.type);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void platformUnspecified() {
@@ -1204,7 +1260,7 @@ private:
         ASSERT(settings->platform.set(cppcheck::Platform::Type::Native));
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(cppcheck::Platform::Type::Unspecified, settings->platform.type);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void platformPlatformFile() {
@@ -1213,14 +1269,14 @@ private:
         ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
         ASSERT_EQUALS(true, parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(cppcheck::Platform::Type::File, settings->platform.type);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void platformUnknown() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--platform=win128", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: unrecognized platform: 'win128'.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unrecognized platform: 'win128'.\n", logger->str());
     }
 
     void plistEmpty() {
@@ -1229,7 +1285,7 @@ private:
         settings->plistOutput = "";
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->plistOutput == "./");
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void plistDoesNotExist() {
@@ -1238,14 +1294,14 @@ private:
         // Fails since folder pointed by --plist-output= does not exist
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
         // TODO: output contains non-native separator
-        //ASSERT_EQUALS("cppcheck: error: plist folder does not exist: \"cppcheck_reports/\".\n", GET_REDIRECT_OUTPUT);
+        //ASSERT_EQUALS("cppcheck: error: plist folder does not exist: \"cppcheck_reports/\".\n", logger->str());
     }
 
     void suppressionsOld() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--suppressions", "suppr.txt", "file.cpp"};
         ASSERT(!parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--suppressions\".\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--suppressions\".\n", logger->str());
     }
 
     void suppressions() {
@@ -1259,28 +1315,28 @@ private:
         auto it = settings->nomsg.getSuppressions().cbegin();
         ASSERT_EQUALS("uninitvar", (*it++).errorId);
         ASSERT_EQUALS("unusedFunction", (*it).errorId);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void suppressionsNoFile1() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--suppressions-list=", "file.cpp"};
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(false, GET_REDIRECT_OUTPUT.find("If you want to pass two files") != std::string::npos);
+        ASSERT_EQUALS(false, logger->str().find("If you want to pass two files") != std::string::npos);
     }
 
     void suppressionsNoFile2() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--suppressions-list=a.suppr,b.suppr", "file.cpp"};
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(true, GET_REDIRECT_OUTPUT.find("If you want to pass two files") != std::string::npos);
+        ASSERT_EQUALS(true, logger->str().find("If you want to pass two files") != std::string::npos);
     }
 
     void suppressionsNoFile3() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--suppressions-list=a.suppr b.suppr", "file.cpp"};
         ASSERT_EQUALS(false, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(true, GET_REDIRECT_OUTPUT.find("If you want to pass two files") != std::string::npos);
+        ASSERT_EQUALS(true, logger->str().find("If you want to pass two files") != std::string::npos);
     }
 
     static Suppressions::ErrorMessage errorMessage(const std::string &errorId, const std::string &fileName, int lineNumber) {
@@ -1296,7 +1352,7 @@ private:
         const char * const argv[] = {"cppcheck", "--suppress=uninitvar", "file.cpp"};
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->nomsg.isSuppressed(errorMessage("uninitvar", "file.cpp", 1)));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void suppressionSingleFile() {
@@ -1304,7 +1360,7 @@ private:
         const char * const argv[] = {"cppcheck", "--suppress=uninitvar:file.cpp", "file.cpp"};
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->nomsg.isSuppressed(errorMessage("uninitvar", "file.cpp", 1U)));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void suppressionTwo() {
@@ -1313,7 +1369,7 @@ private:
         TODO_ASSERT_EQUALS(true, false, parser->parseFromArgs(3, argv));
         TODO_ASSERT_EQUALS(true, false, settings->nomsg.isSuppressed(errorMessage("uninitvar", "file.cpp", 1U)));
         TODO_ASSERT_EQUALS(true, false, settings->nomsg.isSuppressed(errorMessage("noConstructor", "file.cpp", 1U)));
-        TODO_ASSERT_EQUALS("", "cppcheck: error: Failed to add suppression. Invalid id \"uninitvar,noConstructor\"\n", GET_REDIRECT_OUTPUT);
+        TODO_ASSERT_EQUALS("", "cppcheck: error: Failed to add suppression. Invalid id \"uninitvar,noConstructor\"\n", logger->str());
     }
 
     void suppressionTwoSeparate() {
@@ -1322,7 +1378,7 @@ private:
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS(true, settings->nomsg.isSuppressed(errorMessage("uninitvar", "file.cpp", 1U)));
         ASSERT_EQUALS(true, settings->nomsg.isSuppressed(errorMessage("noConstructor", "file.cpp", 1U)));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void templates() {
@@ -1333,7 +1389,7 @@ private:
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS("{file}:{line},{severity},{id},{message}", settings->templateFormat);
         ASSERT_EQUALS("{file}:{line}:{column} {info}", settings->templateLocation);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void templatesGcc() {
@@ -1344,7 +1400,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS("{file}:{line}:{column}: warning: {message} [{id}]\n{code}", settings->templateFormat);
         ASSERT_EQUALS("{file}:{line}:{column}: note: {info}\n{code}", settings->templateLocation);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void templatesVs() {
@@ -1355,7 +1411,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS("{file}({line}): {severity}: {message}", settings->templateFormat);
         ASSERT_EQUALS("", settings->templateLocation);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void templatesEdit() {
@@ -1366,7 +1422,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS("{file} +{line}: {severity}: {message}", settings->templateFormat);
         ASSERT_EQUALS("", settings->templateLocation);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void templatesCppcheck1() {
@@ -1377,7 +1433,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS("{callstack}: ({severity}{inconclusive:, inconclusive}) {message}", settings->templateFormat);
         ASSERT_EQUALS("", settings->templateLocation);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void templatesDaca2() {
@@ -1389,7 +1445,7 @@ private:
         ASSERT_EQUALS("{file}:{line}:{column}: {severity}:{inconclusive:inconclusive:} {message} [{id}]", settings->templateFormat);
         ASSERT_EQUALS("{file}:{line}:{column}: note: {info}", settings->templateLocation);
         ASSERT_EQUALS(true, settings->daca);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void templatesSelfcheck() {
@@ -1400,7 +1456,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS("{file}:{line}:{column}: {severity}:{inconclusive:inconclusive:} {message} [{id}]\n{code}", settings->templateFormat);
         ASSERT_EQUALS("{file}:{line}:{column}: note: {info}\n{code}", settings->templateLocation);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     // TODO: we should bail out on this
@@ -1412,28 +1468,16 @@ private:
         TODO_ASSERT(!parser->parseFromArgs(3, argv));
         ASSERT_EQUALS("selfchek", settings->templateFormat);
         ASSERT_EQUALS("", settings->templateLocation);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void templateFormatInvalid() {
-        REDIRECT;
-        const char* const argv[] = { "cppcheck", "--template", "--template-location={file}", "file.cpp" };
-        ASSERT(!parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--template' is missing.\n", GET_REDIRECT_OUTPUT);
-    }
-
-    // TODO: will not error out as he next option does not start with a "-"
-    void templateFormatInvalid2() {
         REDIRECT;
         settings->templateFormat.clear();
         settings->templateLocation.clear();
         const char* const argv[] = { "cppcheck", "--template", "file.cpp" };
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("file.cpp", settings->templateFormat);
-        ASSERT_EQUALS("", settings->templateLocation);
-        TODO_ASSERT_EQUALS("cppcheck: error: argument to '--template' is missing.\n",
-                           "cppcheck: '--template <template>' is deprecated and will be removed in 2.13 - please use '--template=<template>' instead\n"
-                           "cppcheck: error: no C or C++ source files found.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--template\".\n", logger->str());
     }
 
     // will use the default
@@ -1446,28 +1490,14 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS("{file}:{line}:{column}: {inconclusive:}{severity}:{inconclusive: inconclusive:} {message} [{id}]\n{code}", settings->templateFormat);
         ASSERT_EQUALS("{file}:{line}:{column}: note: {info}\n{code}", settings->templateLocation);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void templateLocationInvalid() {
         REDIRECT;
         const char* const argv[] = { "cppcheck", "--template-location", "--template={file}", "file.cpp" };
         ASSERT(!parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--template-location' is missing.\n", GET_REDIRECT_OUTPUT);
-    }
-
-    // TODO: will not error out as the next option does not start with a "-"
-    void templateLocationInvalid2() {
-        REDIRECT;
-        settings->templateFormat.clear();
-        settings->templateLocation.clear();
-        const char* const argv[] = { "cppcheck", "--template-location", "file.cpp" };
-        ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("{file}:{line}:{column}: {inconclusive:}{severity}:{inconclusive: inconclusive:} {message} [{id}]\n{code}", settings->templateFormat);
-        ASSERT_EQUALS("file.cpp", settings->templateLocation);
-        TODO_ASSERT_EQUALS("",
-                           "cppcheck: '--template-location <template>' is deprecated and will be removed in 2.13 - please use '--template-location=<template>' instead\n"
-                           "cppcheck: error: no C or C++ source files found.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--template-location\".\n", logger->str());
     }
 
     // will use the default
@@ -1480,7 +1510,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS("{file}:{line}:{column}: {inconclusive:}{severity}:{inconclusive: inconclusive:} {message} [{id}]\n{code}", settings->templateFormat);
         ASSERT_EQUALS("{file}:{line}:{column}: note: {info}\n{code}", settings->templateLocation);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void xml() {
@@ -1491,7 +1521,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->xml);
         ASSERT_EQUALS(1, settings->xml_version);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void xmlver2() {
@@ -1502,7 +1532,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->xml);
         ASSERT_EQUALS(2, settings->xml_version);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void xmlver2both() {
@@ -1513,7 +1543,7 @@ private:
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT(settings->xml);
         ASSERT_EQUALS(2, settings->xml_version);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void xmlver2both2() {
@@ -1524,7 +1554,7 @@ private:
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT(settings->xml);
         ASSERT_EQUALS(2, settings->xml_version);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void xmlverunknown() {
@@ -1532,7 +1562,7 @@ private:
         const char * const argv[] = {"cppcheck", "--xml", "--xml-version=3", "file.cpp"};
         // FAils since unknown XML format version
         ASSERT_EQUALS(false, parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: '--xml-version' can only be 2.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: '--xml-version' can only be 2.\n", logger->str());
     }
 
     void xmlverinvalid() {
@@ -1540,7 +1570,7 @@ private:
         const char * const argv[] = {"cppcheck", "--xml", "--xml-version=a", "file.cpp"};
         // FAils since unknown XML format version
         ASSERT_EQUALS(false, parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--xml-version=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--xml-version=' is not valid - not an integer.\n", logger->str());
     }
 
     void doc() {
@@ -1549,15 +1579,84 @@ private:
         ASSERT(parser->parseFromArgs(2, argv));
         ASSERT(parser->exitAfterPrinting());
         ASSERT(startsWith(GET_REDIRECT_OUTPUT, "## "));
+        ASSERT_EQUALS("", logger->str());
     }
 
-    void showtime() {
+    void showtimeSummary() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--showtime=summary", "file.cpp"};
         settings->showtime = SHOWTIME_MODES::SHOWTIME_NONE;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->showtime == SHOWTIME_MODES::SHOWTIME_SUMMARY);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
+    }
+
+    void showtimeFile() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--showtime=file", "file.cpp"};
+        settings->showtime = SHOWTIME_MODES::SHOWTIME_NONE;
+        ASSERT(parser->parseFromArgs(3, argv));
+        ASSERT(settings->showtime == SHOWTIME_MODES::SHOWTIME_FILE);
+        ASSERT_EQUALS("", logger->str());
+    }
+
+    void showtimeFileTotal() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--showtime=file-total", "file.cpp"};
+        settings->showtime = SHOWTIME_MODES::SHOWTIME_NONE;
+        ASSERT(parser->parseFromArgs(3, argv));
+        ASSERT(settings->showtime == SHOWTIME_MODES::SHOWTIME_FILE_TOTAL);
+        ASSERT_EQUALS("", logger->str());
+    }
+
+    void showtimeTop5() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--showtime=top5", "file.cpp"};
+        settings->showtime = SHOWTIME_MODES::SHOWTIME_NONE;
+        ASSERT(parser->parseFromArgs(3, argv));
+        ASSERT(settings->showtime == SHOWTIME_MODES::SHOWTIME_TOP5_FILE);
+        ASSERT_EQUALS("cppcheck: --showtime=top5 is deprecated and will be removed in Cppcheck 2.14. Please use --showtime=top5_file or --showtime=top5_summary instead.\n", logger->str());
+    }
+
+    void showtimeTop5File() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--showtime=top5_file", "file.cpp"};
+        settings->showtime = SHOWTIME_MODES::SHOWTIME_NONE;
+        ASSERT(parser->parseFromArgs(3, argv));
+        ASSERT(settings->showtime == SHOWTIME_MODES::SHOWTIME_TOP5_FILE);
+        ASSERT_EQUALS("", logger->str());
+    }
+
+    void showtimeTop5Summary() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--showtime=top5_summary", "file.cpp"};
+        settings->showtime = SHOWTIME_MODES::SHOWTIME_NONE;
+        ASSERT(parser->parseFromArgs(3, argv));
+        ASSERT(settings->showtime == SHOWTIME_MODES::SHOWTIME_TOP5_SUMMARY);
+        ASSERT_EQUALS("", logger->str());
+    }
+
+    void showtimeNone() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--showtime=none", "file.cpp"};
+        settings->showtime = SHOWTIME_MODES::SHOWTIME_FILE;
+        ASSERT(parser->parseFromArgs(3, argv));
+        ASSERT(settings->showtime == SHOWTIME_MODES::SHOWTIME_NONE);
+        ASSERT_EQUALS("", logger->str());
+    }
+
+    void showtimeEmpty() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--showtime=", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: no mode provided for --showtime\n", logger->str());
+    }
+
+    void showtimeInvalid() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--showtime=top10", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: unrecognized --showtime mode: 'top10'. Supported modes: file, file-total, summary, top5, top5_file, top5_summary.\n", logger->str());
     }
 
     void errorlist1() {
@@ -1565,7 +1664,7 @@ private:
         const char * const argv[] = {"cppcheck", "--errorlist"};
         ASSERT(parser->parseFromArgs(2, argv));
         ASSERT(parser->getShowErrorMessages());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void errorlistverbose1() {
@@ -1574,7 +1673,7 @@ private:
         settings->verbose = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->verbose);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void errorlistverbose2() {
@@ -1583,7 +1682,7 @@ private:
         settings->verbose = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->verbose);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void ignorepathsnopath() {
@@ -1591,7 +1690,7 @@ private:
         const char * const argv[] = {"cppcheck", "-i"};
         // Fails since no ignored path given
         ASSERT_EQUALS(false, parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '-i' is missing.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '-i' is missing.\n", logger->str());
     }
 
     void exceptionhandling() {
@@ -1602,7 +1701,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->exceptionHandling);
         ASSERT_EQUALS(stderr, CppCheckExecutor::getExceptionOutput());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void exceptionhandling2() {
@@ -1613,7 +1712,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->exceptionHandling);
         ASSERT_EQUALS(stderr, CppCheckExecutor::getExceptionOutput());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void exceptionhandling3() {
@@ -1624,21 +1723,21 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->exceptionHandling);
         ASSERT_EQUALS(stdout, CppCheckExecutor::getExceptionOutput());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void exceptionhandlingInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--exception-handling=exfile"};
         ASSERT_EQUALS(false, parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: invalid '--exception-handling' argument\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: invalid '--exception-handling' argument\n", logger->str());
     }
 
     void exceptionhandlingInvalid2() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--exception-handling-foo"};
         ASSERT_EQUALS(false, parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--exception-handling-foo\".\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--exception-handling-foo\".\n", logger->str());
     }
 
     void clang() {
@@ -1649,7 +1748,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->clang);
         ASSERT_EQUALS("exe", settings->clangExecutable);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void clang2() {
@@ -1660,14 +1759,14 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT(settings->clang);
         ASSERT_EQUALS("clang-14", settings->clangExecutable);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void clangInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--clang-foo"};
         ASSERT_EQUALS(false, parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--clang-foo\".\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--clang-foo\".\n", logger->str());
     }
 
     void valueFlowMaxIterations() {
@@ -1676,7 +1775,7 @@ private:
         settings->valueFlowMaxIterations = SIZE_MAX;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(0, settings->valueFlowMaxIterations);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void valueFlowMaxIterations2() {
@@ -1685,28 +1784,28 @@ private:
         settings->valueFlowMaxIterations = SIZE_MAX;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(11, settings->valueFlowMaxIterations);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void valueFlowMaxIterationsInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--valueflow-max-iterations"};
         ASSERT(!parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--valueflow-max-iterations\".\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--valueflow-max-iterations\".\n", logger->str());
     }
 
     void valueFlowMaxIterationsInvalid2() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--valueflow-max-iterations=seven"};
         ASSERT(!parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--valueflow-max-iterations=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--valueflow-max-iterations=' is not valid - not an integer.\n", logger->str());
     }
 
     void valueFlowMaxIterationsInvalid3() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--valueflow-max-iterations=-1"};
         ASSERT(!parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--valueflow-max-iterations=' is not valid - needs to be positive.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--valueflow-max-iterations=' is not valid - needs to be positive.\n", logger->str());
     }
 
     void checksMaxTime() {
@@ -1715,21 +1814,21 @@ private:
         settings->checksMaxTime = 0;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(12, settings->checksMaxTime);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void checksMaxTime2() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--checks-max-time=-1", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--checks-max-time=' needs to be a positive integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--checks-max-time=' needs to be a positive integer.\n", logger->str());
     }
 
     void checksMaxTimeInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--checks-max-time=one", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--checks-max-time=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--checks-max-time=' is not valid - not an integer.\n", logger->str());
     }
 
 #ifdef THREADING_MODEL_FORK
@@ -1739,7 +1838,7 @@ private:
         settings->loadAverage = 0;
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS(12, settings->loadAverage);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void loadAverage2() {
@@ -1748,14 +1847,14 @@ private:
         settings->loadAverage = 0;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(12, settings->loadAverage);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void loadAverageInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "-l", "one", "file.cpp"};
         ASSERT(!parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '-l' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '-l' is not valid - not an integer.\n", logger->str());
     }
 #endif
 
@@ -1765,14 +1864,14 @@ private:
         settings->maxCtuDepth = 0;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(12, settings->maxCtuDepth);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void maxCtuDepthInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--max-ctu-depth=one", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--max-ctu-depth=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--max-ctu-depth=' is not valid - not an integer.\n", logger->str());
     }
 
     void performanceValueflowMaxTime() {
@@ -1781,14 +1880,14 @@ private:
         settings->performanceValueFlowMaxTime = 0;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(12, settings->performanceValueFlowMaxTime);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void performanceValueflowMaxTimeInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--performance-valueflow-max-time=one", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--performance-valueflow-max-time=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--performance-valueflow-max-time=' is not valid - not an integer.\n", logger->str());
     }
 
     void performanceValueFlowMaxIfCount() {
@@ -1797,14 +1896,14 @@ private:
         settings->performanceValueFlowMaxIfCount = 0;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(12, settings->performanceValueFlowMaxIfCount);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void performanceValueFlowMaxIfCountInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--performance-valueflow-max-if-count=one", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--performance-valueflow-max-if-count=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--performance-valueflow-max-if-count=' is not valid - not an integer.\n", logger->str());
     }
 
     void templateMaxTime() {
@@ -1813,21 +1912,21 @@ private:
         settings->templateMaxTime = 0;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(12, settings->templateMaxTime);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void templateMaxTimeInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--template-max-time=one", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--template-max-time=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--template-max-time=' is not valid - not an integer.\n", logger->str());
     }
 
     void templateMaxTimeInvalid2() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--template-max-time=-1", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--template-max-time=' is not valid - needs to be positive.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--template-max-time=' is not valid - needs to be positive.\n", logger->str());
     }
 
     void typedefMaxTime() {
@@ -1836,21 +1935,85 @@ private:
         settings->typedefMaxTime = 0;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(12, settings->typedefMaxTime);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void typedefMaxTimeInvalid() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--typedef-max-time=one", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--typedef-max-time=' is not valid - not an integer.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--typedef-max-time=' is not valid - not an integer.\n", logger->str());
     }
 
     void typedefMaxTimeInvalid2() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--typedef-max-time=-1", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '--typedef-max-time=' is not valid - needs to be positive.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '--typedef-max-time=' is not valid - needs to be positive.\n", logger->str());
+    }
+
+    void project() {
+        REDIRECT;
+        ScopedFile file("project.cppcheck",
+                        "<project>\n"
+                        "<paths>\n"
+                        "<dir name=\"dir\"/>\n"
+                        "</paths>\n"
+                        "</project>");
+        const char * const argv[] = {"cppcheck", "--project=project.cppcheck"};
+        ASSERT(parser->parseFromArgs(2, argv));
+        ASSERT_EQUALS(static_cast<int>(ImportProject::Type::CPPCHECK_GUI), static_cast<int>(settings->project.projectType));
+        ASSERT_EQUALS(1, parser->getPathNames().size());
+        auto it = parser->getPathNames().cbegin();
+        ASSERT_EQUALS("dir", *it);
+        ASSERT_EQUALS("", logger->str());
+    }
+
+    void projectMultiple() {
+        REDIRECT;
+        ScopedFile file("project.cppcheck", "<project></project>");
+        const char * const argv[] = {"cppcheck", "--project=project.cppcheck", "--project=project.cppcheck", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(4, argv));
+        ASSERT_EQUALS("cppcheck: error: multiple --project options are not supported.\n", logger->str());
+    }
+
+    void projectAndSource() {
+        REDIRECT;
+        ScopedFile file("project.cppcheck", "<project></project>");
+        const char * const argv[] = {"cppcheck", "--project=project.cppcheck", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: --project cannot be used in conjunction with source files.\n", logger->str());
+    }
+
+    void projectEmpty() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--project=", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: failed to open project ''. The file does not exist.\n", logger->str());
+    }
+
+    void projectMissing() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--project=project.cppcheck", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: failed to open project 'project.cppcheck'. The file does not exist.\n", logger->str());
+    }
+
+    void projectNoPaths() {
+        ScopedFile file("project.cppcheck", "<project></project>");
+        const char * const argv[] = {"cppcheck", "--project=project.cppcheck"};
+        ASSERT(!parser->parseFromArgs(2, argv));
+        ASSERT_EQUALS("cppcheck: error: no C or C++ source files found.\n", logger->str());
+    }
+
+    void addon() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--addon=misra", "file.cpp"};
+        settings->addons.clear();
+        ASSERT(parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS(1, settings->addons.size());
+        ASSERT_EQUALS("misra", *settings->addons.cbegin());
+        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
     }
 
     void ignorepaths1() {
@@ -1859,7 +2022,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(1, parser->getIgnoredPaths().size());
         ASSERT_EQUALS("src", parser->getIgnoredPaths()[0]);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void ignorepaths2() {
@@ -1868,7 +2031,7 @@ private:
         ASSERT(parser->parseFromArgs(4, argv));
         ASSERT_EQUALS(1, parser->getIgnoredPaths().size());
         ASSERT_EQUALS("src", parser->getIgnoredPaths()[0]);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void ignorepaths3() {
@@ -1878,7 +2041,7 @@ private:
         ASSERT_EQUALS(2, parser->getIgnoredPaths().size());
         ASSERT_EQUALS("src", parser->getIgnoredPaths()[0]);
         ASSERT_EQUALS("module", parser->getIgnoredPaths()[1]);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void ignorepaths4() {
@@ -1888,7 +2051,7 @@ private:
         ASSERT_EQUALS(2, parser->getIgnoredPaths().size());
         ASSERT_EQUALS("src", parser->getIgnoredPaths()[0]);
         ASSERT_EQUALS("module", parser->getIgnoredPaths()[1]);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void ignorefilepaths1() {
@@ -1897,7 +2060,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(1, parser->getIgnoredPaths().size());
         ASSERT_EQUALS("foo.cpp", parser->getIgnoredPaths()[0]);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void ignorefilepaths2() {
@@ -1906,7 +2069,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(1, parser->getIgnoredPaths().size());
         ASSERT_EQUALS("src/foo.cpp", parser->getIgnoredPaths()[0]);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void checkconfig() {
@@ -1915,14 +2078,14 @@ private:
         settings->checkConfiguration = false;
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(true, settings->checkConfiguration);
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void unknownParam() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--foo", "file.cpp"};
         ASSERT(!parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--foo\".\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--foo\".\n", logger->str());
     }
 
     void undefs() {
@@ -1931,7 +2094,7 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(1, settings->userUndefs.size());
         ASSERT(settings->userUndefs.find("_WIN32") != settings->userUndefs.end());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void undefs2() {
@@ -1941,7 +2104,7 @@ private:
         ASSERT_EQUALS(2, settings->userUndefs.size());
         ASSERT(settings->userUndefs.find("_WIN32") != settings->userUndefs.end());
         ASSERT(settings->userUndefs.find("NODEBUG") != settings->userUndefs.end());
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void undefs_noarg() {
@@ -1949,7 +2112,7 @@ private:
         const char * const argv[] = {"cppcheck", "-U"};
         // Fails since -U has no param
         ASSERT_EQUALS(false, parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '-U' is missing.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '-U' is missing.\n", logger->str());
     }
 
     void undefs_noarg2() {
@@ -1957,7 +2120,7 @@ private:
         const char * const argv[] = {"cppcheck", "-U", "-v", "file.cpp"};
         // Fails since -U has no param
         ASSERT_EQUALS(false, parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '-U' is missing.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '-U' is missing.\n", logger->str());
     }
 
     void undefs_noarg3() {
@@ -1965,28 +2128,28 @@ private:
         const char * const argv[] = {"cppcheck", "-U", "--quiet", "file.cpp"};
         // Fails since -U has no param
         ASSERT_EQUALS(false, parser->parseFromArgs(4, argv));
-        ASSERT_EQUALS("cppcheck: error: argument to '-U' is missing.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: argument to '-U' is missing.\n", logger->str());
     }
 
     void cppcheckBuildDirExistent() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--cppcheck-build-dir=.", "file.cpp"};
         ASSERT_EQUALS(true, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("", logger->str());
     }
 
     void cppcheckBuildDirNonExistent() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--cppcheck-build-dir=non-existent-path"};
         ASSERT_EQUALS(false, parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: Directory 'non-existent-path' specified by --cppcheck-build-dir argument has to be existent.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: Directory 'non-existent-path' specified by --cppcheck-build-dir argument has to be existent.\n", logger->str());
     }
 
     void cppcheckBuildDirEmpty() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--cppcheck-build-dir="};
         ASSERT_EQUALS(false, parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS("cppcheck: error: Directory '' specified by --cppcheck-build-dir argument has to be existent.\n", GET_REDIRECT_OUTPUT);
+        ASSERT_EQUALS("cppcheck: error: Directory '' specified by --cppcheck-build-dir argument has to be existent.\n", logger->str());
     }
 };
 

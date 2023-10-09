@@ -18,30 +18,34 @@
 
 #include "errortypes.h"
 
-InternalError::InternalError(const Token *tok, std::string errorMsg, Type type) :
-    token(tok), errorMessage(std::move(errorMsg)), type(type)
+#include "utils.h"
+
+static std::string typeToString(InternalError::Type type)
 {
     switch (type) {
-    case AST:
-        id = "internalAstError";
-        break;
-    case SYNTAX:
-        id = "syntaxError";
-        break;
-    case UNKNOWN_MACRO:
-        id = "unknownMacro";
-        break;
-    case INTERNAL:
-        id = "cppcheckError";
-        break;
-    case LIMIT:
-        id = "cppcheckLimit";
-        break;
-    case INSTANTIATION:
-        id = "instantiationError";
-        break;
+    case InternalError::Type::AST:
+        return "internalAstError";
+    case InternalError::Type::SYNTAX:
+        return "syntaxError";
+    case InternalError::Type::UNKNOWN_MACRO:
+        return "unknownMacro";
+    case InternalError::Type::INTERNAL:
+        return "internalError";
+    case InternalError::Type::LIMIT:
+        return "cppcheckLimit";
+    case InternalError::Type::INSTANTIATION:
+        return "instantiationError";
     }
+    cppcheck::unreachable();
 }
+
+InternalError::InternalError(const Token *tok, std::string errorMsg, Type type) :
+    InternalError(tok, std::move(errorMsg), "", type)
+{}
+
+InternalError::InternalError(const Token *tok, std::string errorMsg, std::string details, Type type) :
+    token(tok), errorMessage(std::move(errorMsg)), details(std::move(details)), type(type), id(typeToString(type))
+{}
 
 std::string Severity::toString(Severity::SeverityType severity)
 {

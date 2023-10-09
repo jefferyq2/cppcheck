@@ -19,19 +19,14 @@
 
 #include "checkleakautovar.h"
 #include "errortypes.h"
-#include "library.h"
+#include "helpers.h"
 #include "settings.h"
 #include "fixture.h"
 #include "tokenize.h"
 
-#include <map>
 #include <sstream> // IWYU pragma: keep
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
-
-#include <simplecpp.h>
 
 class TestLeakAutoVarStrcpy;
 class TestLeakAutoVarWindows;
@@ -44,27 +39,29 @@ private:
     Settings settings;
 
     void run() override {
-        int id = 0;
-        while (!Library::ismemory(++id));
-        settings.library.setalloc("malloc", id, -1);
-        settings.library.setrealloc("realloc", id, -1);
-        settings.library.setdealloc("free", id, 1);
-        while (!Library::isresource(++id));
-        settings.library.setalloc("socket", id, -1);
-        settings.library.setdealloc("close", id, 1);
-        while (!Library::isresource(++id));
-        settings.library.setalloc("fopen", id, -1);
-        settings.library.setrealloc("freopen", id, -1, 3);
-        settings.library.setdealloc("fclose", id, 1);
-        settings.library.smartPointers["std::shared_ptr"];
-        settings.library.smartPointers["std::unique_ptr"];
-        settings.library.smartPointers["std::unique_ptr"].unique = true;
-
         const char xmldata[] = "<?xml version=\"1.0\"?>\n"
                                "<def>\n"
                                "  <podtype name=\"uint8_t\" sign=\"u\" size=\"1\"/>\n"
+                               "  <memory>\n"
+                               "    <alloc>malloc</alloc>\n"
+                               "    <realloc>realloc</realloc>\n"
+                               "    <dealloc>free</dealloc>\n"
+                               "  </memory>\n"
+                               "  <resource>\n"
+                               "    <alloc>socket</alloc>\n"
+                               "    <dealloc>close</dealloc>\n"
+                               "  </resource>\n"
+                               "  <resource>\n"
+                               "    <alloc>fopen</alloc>\n"
+                               "    <realloc realloc-arg=\"3\">freopen</realloc>\n"
+                               "    <dealloc>fclose</dealloc>\n"
+                               "  </resource>\n"
+                               "  <smart-pointer class-name=\"std::shared_ptr\"/>\n"
+                               "  <smart-pointer class-name=\"std::unique_ptr\">\n"
+                               "    <unique/>\n"
+                               "  </smart-pointer>\n"
                                "</def>";
-        ASSERT(settings.library.loadxmldata(xmldata, sizeof(xmldata)));
+        settings = settingsBuilder(settings).libraryxml(xmldata, sizeof(xmldata)).build();
 
         // Assign
         TEST_CASE(assign1);
@@ -2835,24 +2832,17 @@ public:
 private:
     const Settings settings = settingsBuilder().library("std.cfg").checkLibrary().build();
 
-    void checkP(const char code[], bool cpp = false) {
+#define checkP(...) checkP_(__FILE__, __LINE__, __VA_ARGS__)
+    void checkP_(const char* file, int line, const char code[], bool cpp = false) {
         // Clear the error buffer..
         errout.str("");
 
-        // Raw tokens..
         std::vector<std::string> files(1, cpp?"test.cpp":"test.c");
-        std::istringstream istr(code);
-        const simplecpp::TokenList tokens1(istr, files, files[0]);
-
-        // Preprocess..
-        simplecpp::TokenList tokens2(files);
-        std::map<std::string, simplecpp::TokenList*> filedata;
-        simplecpp::preprocess(tokens2, tokens1, files, filedata, simplecpp::DUI());
+        Tokenizer tokenizer(&settings, this);
+        PreprocessorHelper::preprocess(code, files, tokenizer);
 
         // Tokenizer..
-        Tokenizer tokenizer(&settings, this);
-        tokenizer.createTokens(std::move(tokens2));
-        tokenizer.simplifyTokens1("");
+        ASSERT_LOC(tokenizer.simplifyTokens1(""), file, line);
 
         // Check for leaks..
         runChecks<CheckLeakAutoVar>(tokenizer, this);
