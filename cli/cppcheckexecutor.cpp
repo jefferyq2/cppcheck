@@ -18,9 +18,10 @@
 
 #include "cppcheckexecutor.h"
 
+#include "addoninfo.h"
 #include "analyzerinfo.h"
-#include "checkers.h"
 #include "checkersreport.h"
+#include "cmdlinelogger.h"
 #include "cmdlineparser.h"
 #include "color.h"
 #include "config.h"
@@ -48,12 +49,11 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib> // EXIT_SUCCESS and EXIT_FAILURE
-#include <functional>
 #include <iostream>
 #include <iterator>
 #include <list>
-#include <memory>
 #include <sstream> // IWYU pragma: keep
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -85,6 +85,22 @@ class XMLErrorMessagesLogger : public ErrorLogger
     {}
 };
 
+class CmdLineLoggerStd : public CmdLineLogger
+{
+public:
+    CmdLineLoggerStd() = default;
+
+    void printMessage(const std::string &message) override
+    {
+        std::cout << "cppcheck: " << message << std::endl;
+    }
+
+    void printError(const std::string &message) override
+    {
+        printMessage("error: " + message);
+    }
+};
+
 // TODO: do not directly write to stdout
 
 /*static*/ FILE* CppCheckExecutor::mExceptionOutput = stdout;
@@ -96,7 +112,8 @@ CppCheckExecutor::~CppCheckExecutor()
 
 bool CppCheckExecutor::parseFromArgs(Settings &settings, int argc, const char* const argv[])
 {
-    CmdLineParser parser(settings, settings.nomsg, settings.nofail);
+    CmdLineLoggerStd logger;
+    CmdLineParser parser(logger, settings, settings.nomsg, settings.nofail);
     const bool success = parser.parseFromArgs(argc, argv);
 
     if (success) {
@@ -131,6 +148,9 @@ bool CppCheckExecutor::parseFromArgs(Settings &settings, int argc, const char* c
     // Libraries must be loaded before FileLister is executed to ensure markup files will be
     // listed properly.
     if (!loadLibraries(settings))
+        return false;
+
+    if (!loadAddons(settings))
         return false;
 
     // Check that all include paths exist
@@ -308,9 +328,9 @@ int CppCheckExecutor::check_internal(CppCheck& cppcheck)
         returnValue = executor.check();
     } else {
 #if defined(THREADING_MODEL_THREAD)
-        ThreadExecutor executor(mFiles, settings, settings.nomsg, *this);
+        ThreadExecutor executor(mFiles, settings, settings.nomsg, *this, CppCheckExecutor::executeCommand);
 #elif defined(THREADING_MODEL_FORK)
-        ProcessExecutor executor(mFiles, settings, settings.nomsg, *this);
+        ProcessExecutor executor(mFiles, settings, settings.nomsg, *this, CppCheckExecutor::executeCommand);
 #endif
         returnValue = executor.check();
     }
@@ -389,6 +409,22 @@ bool CppCheckExecutor::loadLibraries(Settings& settings)
     return result;
 }
 
+bool CppCheckExecutor::loadAddons(Settings& settings)
+{
+    bool result = true;
+    for (const std::string &addon: settings.addons) {
+        AddonInfo addonInfo;
+        const std::string failedToGetAddonInfo = addonInfo.getAddonInfo(addon, settings.exename);
+        if (!failedToGetAddonInfo.empty()) {
+            std::cout << failedToGetAddonInfo << std::endl;
+            result = false;
+            continue;
+        }
+        settings.addonInfos.emplace_back(std::move(addonInfo));
+    }
+    return result;
+}
+
 #ifdef _WIN32
 // fix trac ticket #439 'Cppcheck reports wrong filename for filenames containing 8-bit ASCII'
 static inline std::string ansiToOEM(const std::string &msg, bool doConvert)
@@ -402,7 +438,7 @@ static inline std::string ansiToOEM(const std::string &msg, bool doConvert)
         // ansi code page characters to wide characters
         MultiByteToWideChar(CP_ACP, 0, msg.data(), msglength, wcContainer.data(), msglength);
         // wide characters to oem codepage characters
-        WideCharToMultiByte(CP_OEMCP, 0, wcContainer.data(), msglength, const_cast<char *>(result.data()), msglength, nullptr, nullptr);
+        WideCharToMultiByte(CP_OEMCP, 0, wcContainer.data(), msglength, &result[0], msglength, nullptr, nullptr);
 
         return result; // hope for return value optimization
     }
@@ -540,7 +576,7 @@ bool CppCheckExecutor::tryLoadLibrary(Library& destination, const std::string& b
  */
 // cppcheck-suppress passedByValue - used as callback so we need to preserve the signature
 // NOLINTNEXTLINE(performance-unnecessary-value-param) - used as callback so we need to preserve the signature
-bool CppCheckExecutor::executeCommand(std::string exe, std::vector<std::string> args, std::string redirect, std::string &output_)
+int CppCheckExecutor::executeCommand(std::string exe, std::vector<std::string> args, std::string redirect, std::string &output_)
 {
     output_.clear();
 
@@ -567,9 +603,12 @@ bool CppCheckExecutor::executeCommand(std::string exe, std::vector<std::string> 
 #else
     FILE *p = popen(cmd.c_str(), "r");
 #endif
+    //std::cout << "invoking command '" << cmd << "'" << std::endl;
     if (!p) {
-        // TODO: read errno
-        return false;
+        // TODO: how to provide to caller?
+        //const int err = errno;
+        //std::cout << "popen() errno " << std::to_string(err) << std::endl;
+        return -1;
     }
     char buffer[1024];
     while (fgets(buffer, sizeof(buffer), p) != nullptr)
@@ -581,13 +620,19 @@ bool CppCheckExecutor::executeCommand(std::string exe, std::vector<std::string> 
     const int res = pclose(p);
 #endif
     if (res == -1) { // error occured
-        // TODO: read errno
-        return false;
+        // TODO: how to provide to caller?
+        //const int err = errno;
+        //std::cout << "pclose() errno " << std::to_string(err) << std::endl;
+        return res;
     }
-    if (res != 0) { // process failed
-        // TODO: need to get error details
-        return false;
+#if !defined(WIN32) && !defined(__MINGW32__)
+    if (WIFEXITED(res)) {
+        return WEXITSTATUS(res);
     }
-    return true;
+    if (WIFSIGNALED(res)) {
+        return WTERMSIG(res);
+    }
+#endif
+    return res;
 }
 

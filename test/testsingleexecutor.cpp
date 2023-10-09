@@ -28,7 +28,7 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <functional>
+#include <cstdlib>
 #include <list>
 #include <map>
 #include <memory>
@@ -64,9 +64,11 @@ private:
     struct CheckOptions
     {
         CheckOptions() = default;
+        bool quiet = true;
         SHOWTIME_MODES showtime = SHOWTIME_MODES::SHOWTIME_NONE;
         const char* plistOutput = nullptr;
         std::vector<std::string> filesList;
+        bool clangTidy = false;
         bool executeCommandCalled = false;
         std::string exe;
         std::vector<std::string> args;
@@ -75,17 +77,18 @@ private:
     void check(int files, int result, const std::string &data, const CheckOptions& opt = make_default_obj{}) {
         errout.str("");
         output.str("");
-        settings.project.fileSettings.clear();
+
+        Settings s = settings;
 
         std::map<std::string, std::size_t> filemap;
         if (opt.filesList.empty()) {
             for (int i = 1; i <= files; ++i) {
-                const std::string s = fprefix() + "_" + zpad3(i) + ".cpp";
-                filemap[s] = data.size();
+                std::string f_s = fprefix() + "_" + zpad3(i) + ".cpp";
+                filemap[f_s] = data.size();
                 if (useFS) {
                     ImportProject::FileSettings fs;
-                    fs.filename = s;
-                    settings.project.fileSettings.emplace_back(std::move(fs));
+                    fs.filename = std::move(f_s);
+                    s.project.fileSettings.emplace_back(std::move(fs));
                 }
             }
         }
@@ -96,14 +99,16 @@ private:
                 if (useFS) {
                     ImportProject::FileSettings fs;
                     fs.filename = f;
-                    settings.project.fileSettings.emplace_back(std::move(fs));
+                    s.project.fileSettings.emplace_back(std::move(fs));
                 }
             }
         }
 
-        settings.showtime = opt.showtime;
+        s.showtime = opt.showtime;
+        s.quiet = opt.quiet;
         if (opt.plistOutput)
-            settings.plistOutput = opt.plistOutput;
+            s.plistOutput = opt.plistOutput;
+        s.clangTidy = opt.clangTidy;
 
         bool executeCommandCalled = false;
         std::string exe;
@@ -113,9 +118,9 @@ private:
             executeCommandCalled = true;
             exe = std::move(e);
             args = std::move(a);
-            return true;
+            return EXIT_SUCCESS;
         });
-        cppcheck.settings() = settings;
+        cppcheck.settings() = s;
 
         std::vector<std::unique_ptr<ScopedFile>> scopedfiles;
         scopedfiles.reserve(filemap.size());
@@ -126,8 +131,7 @@ private:
         if (useFS)
             filemap.clear();
 
-        // TODO: test with settings.project.fileSettings;
-        SingleExecutor executor(cppcheck, filemap, settings, settings.nomsg, *this);
+        SingleExecutor executor(cppcheck, filemap, s, s.nomsg, *this);
         ASSERT_EQUALS(result, executor.check());
         ASSERT_EQUALS(opt.executeCommandCalled, executeCommandCalled);
         ASSERT_EQUALS(opt.exe, exe);
@@ -149,26 +153,27 @@ private:
         TEST_CASE(one_error_several_files);
         TEST_CASE(markup);
         TEST_CASE(clangTidy);
+        TEST_CASE(showtime_top5_file);
+        TEST_CASE(showtime_top5_summary);
+        TEST_CASE(showtime_file);
+        TEST_CASE(showtime_summary);
+        TEST_CASE(showtime_file_total);
     }
 
     void many_files() {
-        const Settings settingsOld = settings;
-        settings.quiet = false;
-
         check(100, 100,
               "int main()\n"
               "{\n"
               "  char *a = malloc(10);\n"
               "  return 0;\n"
-              "}");
+              "}", dinit(CheckOptions,
+                         $.quiet = false));
         std::string expected;
         for (int i = 1; i <= 100; ++i) {
             expected += "Checking " + fprefix() + "_" + zpad3(i) + ".cpp ...\n";
             expected += std::to_string(i) + "/100 files checked " + std::to_string(i) + "% done\n";
         }
         ASSERT_EQUALS(expected, output.str());
-
-        settings = settingsOld;
     }
 
     void many_files_showtime() {
@@ -251,7 +256,9 @@ private:
               "  char *a = malloc(10);\n"
               "  return 0;\n"
               "}",
-              dinit(CheckOptions, $.filesList = files));
+              dinit(CheckOptions,
+                    $.quiet = false,
+                        $.filesList = files));
         // TODO: filter out the "files checked" messages
         ASSERT_EQUALS("Checking " + fprefix() + "_2.cpp ...\n"
                       "1/4 files checked 25% done\n"
@@ -269,9 +276,6 @@ private:
         if (!useFS)
             return;
 
-        const Settings settingsOld = settings;
-        settings.clangTidy = true;
-
 #ifdef _WIN32
         const char exe[] = "clang-tidy.exe";
 #else
@@ -285,11 +289,72 @@ private:
               "  return 0;\n"
               "}",
               dinit(CheckOptions,
-                    $.executeCommandCalled = true,
+                    $.quiet = false,
+                        $.clangTidy = true,
+                        $.executeCommandCalled = true,
                         $.exe = exe,
                         $.args = {"-quiet", "-checks=*,-clang-analyzer-*,-llvm*", file, "--"}));
         ASSERT_EQUALS("Checking " + file + " ...\n", output.str());
-        settings = settingsOld;
+    }
+
+// TODO: provide data which actually shows values above 0
+
+    void showtime_top5_file() {
+        REDIRECT;
+        check(2, 0,
+              "int main() {}",
+              dinit(CheckOptions,
+                    $.showtime = SHOWTIME_MODES::SHOWTIME_TOP5_FILE));
+        const std::string output_s = GET_REDIRECT_OUTPUT;
+        // for each file: top5 results + overall + empty line
+        ASSERT_EQUALS((5 + 1 + 1) * 2, cppcheck::count_all_of(output_s, '\n'));
+    }
+
+    void showtime_top5_summary() {
+        REDIRECT;
+        check(2, 0,
+              "int main() {}",
+              dinit(CheckOptions,
+                    $.showtime = SHOWTIME_MODES::SHOWTIME_TOP5_SUMMARY));
+        const std::string output_s = GET_REDIRECT_OUTPUT;
+        // once: top5 results + overall + empty line
+        ASSERT_EQUALS(5 + 1 + 1, cppcheck::count_all_of(output_s, '\n'));
+        // should only report the top5 once
+        ASSERT(output_s.find("1 result(s)") == std::string::npos);
+        ASSERT(output_s.find("2 result(s)") != std::string::npos);
+    }
+
+    void showtime_file() {
+        REDIRECT;
+        check(2, 0,
+              "int main() {}",
+              dinit(CheckOptions,
+                    $.showtime = SHOWTIME_MODES::SHOWTIME_FILE));
+        const std::string output_s = GET_REDIRECT_OUTPUT;
+        ASSERT_EQUALS(2, cppcheck::count_all_of(output_s, "Overall time:"));
+    }
+
+    void showtime_summary() {
+        REDIRECT;
+        check(2, 0,
+              "int main() {}",
+              dinit(CheckOptions,
+                    $.showtime = SHOWTIME_MODES::SHOWTIME_SUMMARY));
+        const std::string output_s = GET_REDIRECT_OUTPUT;
+        // should only report the actual summary once
+        ASSERT(output_s.find("1 result(s)") == std::string::npos);
+        ASSERT(output_s.find("2 result(s)") != std::string::npos);
+    }
+
+    void showtime_file_total() {
+        REDIRECT;
+        check(2, 0,
+              "int main() {}",
+              dinit(CheckOptions,
+                    $.showtime = SHOWTIME_MODES::SHOWTIME_FILE_TOTAL));
+        const std::string output_s = GET_REDIRECT_OUTPUT;
+        ASSERT(output_s.find("Check time: " + fprefix() + "_" + zpad3(1) + ".cpp: ") != std::string::npos);
+        ASSERT(output_s.find("Check time: " + fprefix() + "_" + zpad3(2) + ".cpp: ") != std::string::npos);
     }
 
     // TODO: test whole program analysis

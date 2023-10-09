@@ -38,14 +38,7 @@
 
 #include <tinyxml2.h>
 
-#include <simplecpp.h>
-
 #include "json.h"
-
-ImportProject::ImportProject()
-{
-    projectType = Type::UNKNOWN;
-}
 
 void ImportProject::ignorePaths(const std::vector<std::string> &ipaths)
 {
@@ -402,7 +395,7 @@ bool ImportProject::importCompileCommands(std::istream &istr)
         if (!Path::acceptFile(file))
             continue;
 
-        struct FileSettings fs;
+        FileSettings fs;
         if (Path::isAbsolute(file))
             fs.filename = Path::simplifyPath(file);
 #ifdef _WIN32
@@ -1232,6 +1225,8 @@ bool ImportProject::importCppcheckGuiProject(std::istream &istr, Settings *setti
                     temp.premiumArgs += std::string(" --") + child->GetText();
             }
         }
+        else if (strcmp(node->Name(), CppcheckXml::ProjectNameElementName) == 0)
+            ; // no-op
         else {
             printError("Unknown element '" + std::string(node->Name()) + "' in Cppcheck project file");
             return false;

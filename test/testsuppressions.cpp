@@ -31,7 +31,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
-#include <functional>
 #include <list>
 #include <map>
 #include <memory>
@@ -235,7 +234,7 @@ private:
         if (!suppression.empty()) {
             EXPECT_EQ("", settings.nomsg.addSuppressionLine(suppression));
         }
-        ThreadExecutor executor(files, settings, settings.nomsg, *this);
+        ThreadExecutor executor(files, settings, settings.nomsg, *this, CppCheckExecutor::executeCommand);
         std::vector<std::unique_ptr<ScopedFile>> scopedfiles;
         scopedfiles.reserve(files.size());
         for (std::map<std::string, std::size_t>::const_iterator i = files.cbegin(); i != files.cend(); ++i)
@@ -263,7 +262,7 @@ private:
         if (!suppression.empty()) {
             EXPECT_EQ("", settings.nomsg.addSuppressionLine(suppression));
         }
-        ProcessExecutor executor(files, settings, settings.nomsg, *this);
+        ProcessExecutor executor(files, settings, settings.nomsg, *this, CppCheckExecutor::executeCommand);
         std::vector<std::unique_ptr<ScopedFile>> scopedfiles;
         scopedfiles.reserve(files.size());
         for (std::map<std::string, std::size_t>::const_iterator i = files.cbegin(); i != files.cend(); ++i)

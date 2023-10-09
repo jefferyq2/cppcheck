@@ -22,6 +22,7 @@
 #include "errortypes.h"
 #include "library.h"
 #include "settings.h"
+#include "simplecpp.h"
 #include "symboldatabase.h"
 #include "tokenlist.h"
 #include "utils.h"
@@ -143,10 +144,13 @@ void Token::update_property_info()
                 tokType(eKeyword);
             else if (mTokType != eVariable && mTokType != eFunction && mTokType != eType && mTokType != eKeyword)
                 tokType(eName);
-        } else if (std::isdigit((unsigned char)mStr[0]) || (mStr.length() > 1 && mStr[0] == '-' && std::isdigit((unsigned char)mStr[1])))
-            tokType(eNumber);
-        else if (mStr == "=" || mStr == "<<=" || mStr == ">>=" ||
-                 (mStr.size() == 2U && mStr[1] == '=' && std::strchr("+-*/%&^|", mStr[0])))
+        } else if (simplecpp::Token::isNumberLike(mStr)) {
+            if (MathLib::isInt(mStr) || MathLib::isFloat(mStr))
+                tokType(eNumber);
+            else
+                tokType(eName); // assume it is a user defined literal
+        } else if (mStr == "=" || mStr == "<<=" || mStr == ">>=" ||
+                   (mStr.size() == 2U && mStr[1] == '=' && std::strchr("+-*/%&^|", mStr[0])))
             tokType(eAssignmentOp);
         else if (mStr.size() == 1 && mStr.find_first_of(",[]()?:") != std::string::npos)
             tokType(eExtendedOp);
@@ -2554,7 +2558,7 @@ TokenImpl::~TokenImpl()
     delete mTemplateSimplifierPointers;
 
     while (mCppcheckAttributes) {
-        struct CppcheckAttributes *c = mCppcheckAttributes;
+        CppcheckAttributes *c = mCppcheckAttributes;
         mCppcheckAttributes = mCppcheckAttributes->next;
         delete c;
     }
@@ -2562,7 +2566,7 @@ TokenImpl::~TokenImpl()
 
 void TokenImpl::setCppcheckAttribute(TokenImpl::CppcheckAttributes::Type type, MathLib::bigint value)
 {
-    struct CppcheckAttributes *attr = mCppcheckAttributes;
+    CppcheckAttributes *attr = mCppcheckAttributes;
     while (attr && attr->type != type)
         attr = attr->next;
     if (attr)
@@ -2578,7 +2582,7 @@ void TokenImpl::setCppcheckAttribute(TokenImpl::CppcheckAttributes::Type type, M
 
 bool TokenImpl::getCppcheckAttribute(TokenImpl::CppcheckAttributes::Type type, MathLib::bigint &value) const
 {
-    struct CppcheckAttributes *attr = mCppcheckAttributes;
+    CppcheckAttributes *attr = mCppcheckAttributes;
     while (attr && attr->type != type)
         attr = attr->next;
     if (attr)

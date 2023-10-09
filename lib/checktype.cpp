@@ -30,9 +30,13 @@
 #include "tokenize.h"
 #include "valueflow.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <iterator>
 #include <list>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 //---------------------------------------------------------------------------
@@ -48,10 +52,10 @@ namespace {
 //
 
 // CWE ids used:
-static const struct CWE CWE195(195U);   // Signed to Unsigned Conversion Error
-static const struct CWE CWE197(197U);   // Numeric Truncation Error
-static const struct CWE CWE758(758U);   // Reliance on Undefined, Unspecified, or Implementation-Defined Behavior
-static const struct CWE CWE190(190U);   // Integer Overflow or Wraparound
+static const CWE CWE195(195U);   // Signed to Unsigned Conversion Error
+static const CWE CWE197(197U);   // Numeric Truncation Error
+static const CWE CWE758(758U);   // Reliance on Undefined, Unspecified, or Implementation-Defined Behavior
+static const CWE CWE190(190U);   // Integer Overflow or Wraparound
 
 
 void CheckType::checkTooBigBitwiseShift()

@@ -38,6 +38,7 @@
 #include <vector>
 
 class Tokenizer;
+enum class SHOWTIME_MODES;
 
 /// @addtogroup Core
 /// @{
@@ -50,12 +51,14 @@ class Tokenizer;
  */
 class CPPCHECKLIB CppCheck : ErrorLogger {
 public:
+    using ExecuteCmdFn = std::function<int (std::string,std::vector<std::string>,std::string,std::string&)>;
+
     /**
      * @brief Constructor.
      */
     CppCheck(ErrorLogger &errorLogger,
              bool useGlobalSuppressions,
-             std::function<bool(std::string,std::vector<std::string>,std::string,std::string&)> executeCommand);
+             ExecuteCmdFn executeCommand);
 
     /**
      * @brief Destructor.
@@ -140,6 +143,9 @@ public:
 
     /** Remove *.ctu-info files */
     void removeCtuInfoFiles(const std::map<std::string, std::size_t>& files); // cppcheck-suppress functionConst // has side effects
+
+    static void resetTimerResults();
+    static void printTimerResults(SHOWTIME_MODES mode);
 
 private:
 #ifdef HAVE_RULES
@@ -230,7 +236,7 @@ private:
     AnalyzerInformation mAnalyzerInformation;
 
     /** Callback for executing a shell command (exe, args, output) */
-    std::function<bool(std::string,std::vector<std::string>,std::string,std::string&)> mExecuteCommand;
+    ExecuteCmdFn mExecuteCommand;
 
     std::ofstream mPlistFile;
 };

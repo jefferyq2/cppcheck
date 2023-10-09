@@ -50,24 +50,24 @@ namespace {
     CheckOther instance;
 }
 
-static const struct CWE CWE128(128U);   // Wrap-around Error
-static const struct CWE CWE131(131U);   // Incorrect Calculation of Buffer Size
-static const struct CWE CWE197(197U);   // Numeric Truncation Error
-static const struct CWE CWE362(362U);   // Concurrent Execution using Shared Resource with Improper Synchronization ('Race Condition')
-static const struct CWE CWE369(369U);   // Divide By Zero
-static const struct CWE CWE398(398U);   // Indicator of Poor Code Quality
-static const struct CWE CWE475(475U);   // Undefined Behavior for Input to API
-static const struct CWE CWE561(561U);   // Dead Code
-static const struct CWE CWE563(563U);   // Assignment to Variable without Use ('Unused Variable')
-static const struct CWE CWE570(570U);   // Expression is Always False
-static const struct CWE CWE571(571U);   // Expression is Always True
-static const struct CWE CWE672(672U);   // Operation on a Resource after Expiration or Release
-static const struct CWE CWE628(628U);   // Function Call with Incorrectly Specified Arguments
-static const struct CWE CWE683(683U);   // Function Call With Incorrect Order of Arguments
-static const struct CWE CWE704(704U);   // Incorrect Type Conversion or Cast
-static const struct CWE CWE758(758U);   // Reliance on Undefined, Unspecified, or Implementation-Defined Behavior
-static const struct CWE CWE768(768U);   // Incorrect Short Circuit Evaluation
-static const struct CWE CWE783(783U);   // Operator Precedence Logic Error
+static const CWE CWE128(128U);   // Wrap-around Error
+static const CWE CWE131(131U);   // Incorrect Calculation of Buffer Size
+static const CWE CWE197(197U);   // Numeric Truncation Error
+static const CWE CWE362(362U);   // Concurrent Execution using Shared Resource with Improper Synchronization ('Race Condition')
+static const CWE CWE369(369U);   // Divide By Zero
+static const CWE CWE398(398U);   // Indicator of Poor Code Quality
+static const CWE CWE475(475U);   // Undefined Behavior for Input to API
+static const CWE CWE561(561U);   // Dead Code
+static const CWE CWE563(563U);   // Assignment to Variable without Use ('Unused Variable')
+static const CWE CWE570(570U);   // Expression is Always False
+static const CWE CWE571(571U);   // Expression is Always True
+static const CWE CWE672(672U);   // Operation on a Resource after Expiration or Release
+static const CWE CWE628(628U);   // Function Call with Incorrectly Specified Arguments
+static const CWE CWE683(683U);   // Function Call With Incorrect Order of Arguments
+static const CWE CWE704(704U);   // Incorrect Type Conversion or Cast
+static const CWE CWE758(758U);   // Reliance on Undefined, Unspecified, or Implementation-Defined Behavior
+static const CWE CWE768(768U);   // Incorrect Short Circuit Evaluation
+static const CWE CWE783(783U);   // Operator Precedence Logic Error
 
 //----------------------------------------------------------------------------------
 // The return value of fgetc(), getc(), ungetc(), getchar() etc. is an integer value.
@@ -1244,7 +1244,13 @@ static bool canBeConst(const Variable *var, const Settings* settings)
         const Function* func_scope = var->scope()->function;
         if (func_scope && func_scope->type == Function::Type::eConstructor) {
             //could be initialized in initializer list
-            if (func_scope->arg->link()->next()->str() == ":") {
+            const Token* init = func_scope->arg->link()->next();
+            if (init->str() == "noexcept") {
+                init = init->next();
+                if (init->link())
+                    init = init->link()->next();
+            }
+            if (init->str() == ":") {
                 for (const Token* tok2 = func_scope->arg->link()->next()->next(); tok2 != var->scope()->bodyStart; tok2 = tok2->next()) {
                     if (tok2->varId() != var->declarationId())
                         continue;
@@ -2589,10 +2595,11 @@ void CheckOther::checkDuplicateExpression()
                     if (isWithoutSideEffects(cpp, tok->astOperand1())) {
                         const Token* loopTok = isInLoopCondition(tok);
                         if (!loopTok || !isExpressionChanged(tok, tok, loopTok->link()->next()->link(), mSettings, cpp)) {
-                            const bool assignment = tok->str() == "=";
+                            const bool isEnum = tok->scope()->type == Scope::eEnum;
+                            const bool assignment = !isEnum && tok->str() == "=";
                             if (assignment && warningEnabled)
                                 selfAssignmentError(tok, tok->astOperand1()->expressionString());
-                            else if (styleEnabled) {
+                            else if (styleEnabled && !isEnum) {
                                 if (cpp && mSettings->standards.cpp >= Standards::CPP11 && tok->str() == "==") {
                                     const Token* parent = tok->astParent();
                                     while (parent && parent->astParent()) {
@@ -2786,7 +2793,7 @@ void CheckOther::checkComparisonFunctionIsAlwaysTrueOrFalse()
 void CheckOther::checkComparisonFunctionIsAlwaysTrueOrFalseError(const Token* tok, const std::string &functionName, const std::string &varName, const bool result)
 {
     const std::string strResult = bool_to_string(result);
-    const struct CWE cweResult = result ? CWE571 : CWE570;
+    const CWE cweResult = result ? CWE571 : CWE570;
 
     reportError(tok, Severity::warning, "comparisonFunctionIsAlwaysTrueOrFalse",
                 "$symbol:" + functionName + "\n"
@@ -3078,7 +3085,7 @@ void CheckOther::checkIncompleteArrayFill()
                 if (!var || !var->isArray() || var->dimensions().empty() || !var->dimension(0))
                     continue;
 
-                if (MathLib::toLongNumber(tok->linkAt(1)->strAt(-1)) == var->dimension(0)) {
+                if (MathLib::toBigNumber(tok->linkAt(1)->strAt(-1)) == var->dimension(0)) {
                     int size = mTokenizer->sizeOfType(var->typeStartToken());
                     if (size == 0 && var->valueType()->pointer)
                         size = mSettings->platform.sizeof_pointer;

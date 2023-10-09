@@ -23,6 +23,7 @@
     <ClCompile Include="valueflow.cpp" />
     <ClCompile Include="tokenize.cpp" />
     <ClCompile Include="symboldatabase.cpp" />
+    <ClCompile Include="addoninfo.cpp" />
     <ClCompile Include="analyzerinfo.cpp" />
     <ClCompile Include="astutils.cpp" />
     <ClCompile Include="check.cpp">
@@ -39,6 +40,7 @@
     <ClCompile Include="checkbufferoverrun.cpp" />
     <ClCompile Include="checkclass.cpp" />
     <ClCompile Include="checkcondition.cpp" />
+    <ClCompile Include="checkers.cpp" />
     <ClCompile Include="checkersreport.cpp" />
     <ClCompile Include="checkexceptionsafety.cpp" />
     <ClCompile Include="checkfunctions.cpp" />
@@ -90,6 +92,7 @@
   <ItemGroup Label="HeaderFiles">
     <ClInclude Include="..\externals\simplecpp\simplecpp.h" />
     <ClInclude Include="..\externals\tinyxml2\tinyxml2.h" />
+    <ClInclude Include="addoninfo.h" />
     <ClInclude Include="analyzer.h" />
     <ClInclude Include="analyzerinfo.h" />
     <ClInclude Include="astutils.h" />
@@ -103,6 +106,7 @@
     <ClInclude Include="checkbufferoverrun.h" />
     <ClInclude Include="checkclass.h" />
     <ClInclude Include="checkcondition.h" />
+    <ClInclude Include="checkers.h" />
     <ClInclude Include="checkersreport.h" />
     <ClInclude Include="checkexceptionsafety.h" />
     <ClInclude Include="checkfunctions.h" />
@@ -128,6 +132,7 @@
     <ClInclude Include="ctu.h" />
     <ClInclude Include="errorlogger.h" />
     <ClInclude Include="errortypes.h" />
+    <ClInclude Include="findtoken.h" />
     <ClInclude Include="forwardanalyzer.h" />
     <ClInclude Include="fwdanalysis.h" />
     <ClInclude Include="importproject.h" />

@@ -16,32 +16,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
+#ifndef CMD_LINE_LOGGER_H
+#define CMD_LINE_LOGGER_H
 
-#include <map>
 #include <string>
-#include <vector>
 
-#include "config.h"
+class CmdLineLogger
+{
+public:
+    virtual ~CmdLineLogger() = default;
 
-namespace checkers {
-    extern CPPCHECKLIB const std::map<std::string, std::string> allCheckers;
-    extern CPPCHECKLIB const std::map<std::string, std::string> premiumCheckers;
+    virtual void printMessage(const std::string &message) = 0;
+    virtual void printError(const std::string &message) = 0;
+};
 
-    struct CPPCHECKLIB MisraInfo {
-        int a;
-        int b;
-        const char* str;
-        int amendment;
-    };
-
-    extern CPPCHECKLIB const char Req[]; // = "Required";
-    extern CPPCHECKLIB const char Adv[]; // = "Advisory";
-    extern CPPCHECKLIB const char Man[]; // = "Mandatory";
-
-    extern CPPCHECKLIB const std::vector<MisraInfo> misraC2012Rules;
-
-    extern CPPCHECKLIB const std::map<std::string, std::string> misraRuleSeverity;
-}
-
-
+#endif // CMD_LINE_LOGGER_H

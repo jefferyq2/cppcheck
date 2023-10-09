@@ -23,8 +23,10 @@
 #include "tokenize.h"
 #include "tokenlist.h"
 
+#include <cstddef>
 #include <sstream> // IWYU pragma: keep
 #include <string>
+#include <vector>
 
 class Token;
 class Preprocessor;
@@ -90,7 +92,23 @@ public:
      * @param inlineSuppression the inline suppressions
      */
     static std::string getcode(Preprocessor &preprocessor, const std::string &filedata, const std::string &cfg, const std::string &filename, Suppressions *inlineSuppression = nullptr);
+
+    static void preprocess(const char code[], std::vector<std::string> &files, Tokenizer& tokenizer);
+    static void preprocess(Preprocessor &preprocessor, const char code[], std::vector<std::string> &files, Tokenizer& tokenizer);
 };
+
+namespace cppcheck {
+    template<typename T>
+    std::size_t count_all_of(const std::string& str, T sub) {
+        std::size_t n = 0;
+        std::string::size_type pos = 0;
+        while ((pos = str.find(sub, pos)) != std::string::npos) {
+            ++pos;
+            ++n;
+        }
+        return n;
+    }
+}
 
 /* designated initialization helper
     Usage:

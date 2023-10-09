@@ -386,7 +386,7 @@ static void fillProgramMemoryFromAssignments(ProgramMemory& pm, const Token* tok
             if (Token::simpleMatch(tok2->previous(), "else {"))
                 tok2 = tok2->linkAt(-2)->previous();
         }
-        if (tok2->str() == "}") {
+        if (tok2->str() == "}" && !Token::Match(tok2->link()->previous(), "%var% {")) {
             const Token *cond = getCondTokFromEnd(tok2);
             const bool inElse = Token::simpleMatch(tok2->link()->previous(), "else {");
             if (cond) {
@@ -486,10 +486,18 @@ void ProgramMemoryState::assume(const Token* tok, bool b, bool isEmpty)
 
 void ProgramMemoryState::removeModifiedVars(const Token* tok)
 {
+    ProgramMemory pm = state;
+    auto eval = [&](const Token* cond) -> std::vector<MathLib::bigint> {
+        if (conditionIsTrue(cond, pm))
+            return {1};
+        if (conditionIsFalse(cond, pm))
+            return {0};
+        return {};
+    };
     state.erase_if([&](const ExprIdToken& e) {
         const Token* start = origins[e.getExpressionId()];
         const Token* expr = e.tok;
-        if (!expr || isExpressionChanged(expr, start, tok, settings, true)) {
+        if (!expr || isExpressionChangedSkipDeadCode(expr, start, tok, settings, true, eval)) {
             origins.erase(e.getExpressionId());
             return true;
         }
@@ -1210,7 +1218,7 @@ struct Executor {
         if (expr->isNumber()) {
             if (MathLib::isFloat(expr->str()))
                 return unknown;
-            MathLib::bigint i = MathLib::toLongNumber(expr->str());
+            MathLib::bigint i = MathLib::toBigNumber(expr->str());
             if (i < 0 && astIsUnsigned(expr))
                 return unknown;
             return ValueFlow::Value{i};

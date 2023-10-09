@@ -31,6 +31,7 @@
 #include "config.h"
 #include "errortypes.h"
 #include "library.h"
+#include "mathlib.h"
 #include "smallvector.h"
 #include "symboldatabase.h"
 #include "token.h"
@@ -343,6 +344,14 @@ CPPCHECKLIB bool isExpressionChanged(const Token* expr,
                                      const Token* end,
                                      const Settings* settings,
                                      bool cpp,
+                                     int depth = 20);
+
+bool isExpressionChangedSkipDeadCode(const Token* expr,
+                                     const Token* start,
+                                     const Token* end,
+                                     const Settings* settings,
+                                     bool cpp,
+                                     const std::function<std::vector<MathLib::bigint>(const Token* tok)>& evaluate,
                                      int depth = 20);
 
 bool isExpressionChangedAt(const Token* expr,

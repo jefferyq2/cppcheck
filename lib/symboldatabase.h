@@ -350,6 +350,7 @@ public:
      * Is variable in a namespace.
      * @return true if in a namespace, false if not
      */
+    // cppcheck-suppress unusedFunction
     bool isNamespace() const {
         return mAccess == AccessControl::Namespace;
     }
@@ -545,7 +546,7 @@ public:
      * @return length of dimension
      */
     MathLib::bigint dimension(nonneg int index_) const {
-        return mDimensions[index_].num;
+        return mDimensions.at(index_).num;
     }
 
     /**
@@ -553,7 +554,7 @@ public:
      * @return length of dimension known
      */
     bool dimensionKnown(nonneg int index_) const {
-        return mDimensions[index_].known;
+        return mDimensions.at(index_).known;
     }
 
     /**
@@ -1250,18 +1251,18 @@ public:
     ErrorPath debugPath; ///< debug path to the type
 
     ValueType() = default;
-    ValueType(enum Sign s, enum Type t, nonneg int p)
+    ValueType(Sign s, Type t, nonneg int p)
         : sign(s),
         type(t),
         pointer(p)
     {}
-    ValueType(enum Sign s, enum Type t, nonneg int p, nonneg int c)
+    ValueType(Sign s, Type t, nonneg int p, nonneg int c)
         : sign(s),
         type(t),
         pointer(p),
         constness(c)
     {}
-    ValueType(enum Sign s, enum Type t, nonneg int p, nonneg int c, std::string otn)
+    ValueType(Sign s, Type t, nonneg int p, nonneg int c, std::string otn)
         : sign(s),
         type(t),
         pointer(p),
@@ -1356,6 +1357,7 @@ public:
         return const_cast<Scope *>(this->findScope(tok, const_cast<const Scope *>(startScope)));
     }
 
+    // cppcheck-suppress unusedFunction
     bool isVarId(nonneg int varid) const {
         return varid < mVariableList.size();
     }

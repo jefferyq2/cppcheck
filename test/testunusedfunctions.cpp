@@ -18,12 +18,15 @@
 
 #include "checkunusedfunctions.h"
 #include "errortypes.h"
+#include "helpers.h"
 #include "platform.h"
+#include "preprocessor.h"
 #include "settings.h"
 #include "fixture.h"
 #include "tokenize.h"
 
 #include <sstream>
+#include <string>
 
 class TestUnusedFunctions : public TestFixture {
 public:
@@ -50,6 +53,7 @@ private:
         TEST_CASE(template7); // #9766 crash
         TEST_CASE(template8);
         TEST_CASE(template9);
+        TEST_CASE(template10);
         TEST_CASE(throwIsNotAFunction);
         TEST_CASE(unusedError);
         TEST_CASE(unusedMain);
@@ -74,6 +78,8 @@ private:
         TEST_CASE(entrypointsWin);
         TEST_CASE(entrypointsWinU);
         TEST_CASE(entrypointsUnix);
+
+        TEST_CASE(includes);
     }
 
 #define check(...) check_(__FILE__, __LINE__, __VA_ARGS__)
@@ -351,6 +357,15 @@ private:
               "template <typename T> T f(T i) { return i; }\n"
               "template int f<int>(int);\n"
               "int main() { return f(int(2)); }\n");
+        ASSERT_EQUALS("", errout.str());
+    }
+
+    void template10() {
+        check("template<typename T>\n" // #12013, don't crash
+              "struct S {\n"
+              "    static const int digits = std::numeric_limits<T>::digits;\n"
+              "    using type = std::conditional<digits < 32, std::int32_t, std::int64_t>::type;\n"
+              "};\n");
         ASSERT_EQUALS("", errout.str());
     }
 
@@ -672,6 +687,22 @@ private:
         check("int _init() { }\n"
               "int _fini() { }\n", cppcheck::Platform::Type::Native, &s);
         ASSERT_EQUALS("", errout.str());
+    }
+
+    // TODO: fails because the location information is not be preserved by PreprocessorHelper::getcode()
+    void includes()
+    {
+        // #11483
+        const char inc[] = "class A {\n"
+                           "public:\n"
+                           "    void f() {}\n"
+                           "};";
+        const char code[] = R"(#include "test.h")";
+        ScopedFile header("test.h", inc);
+        Preprocessor preprocessor(settings, this);
+        const std::string processed = PreprocessorHelper::getcode(preprocessor, code, "", "test.cpp");
+        check(processed.c_str());
+        TODO_ASSERT_EQUALS("[test.h:3]: (style) The function 'f' is never used.\n", "[test.cpp:3]: (style) The function 'f' is never used.\n", errout.str());
     }
 };
 

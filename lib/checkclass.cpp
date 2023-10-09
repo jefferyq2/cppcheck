@@ -26,7 +26,6 @@
 #include "symboldatabase.h"
 #include "errorlogger.h"
 #include "errortypes.h"
-#include "mathlib.h"
 #include "token.h"
 #include "tokenize.h"
 #include "tokenlist.h"
@@ -2154,7 +2153,7 @@ void CheckClass::checkConst()
             if (!scope->definedType->derivedFrom.empty() && func.isImplicitlyVirtual(true))
                 continue;
 
-            enum MemberAccess memberAccessed = MemberAccess::NONE;
+            MemberAccess memberAccessed = MemberAccess::NONE;
             // if nothing non-const was found. write error..
             if (!checkConstFunc(scope, &func, memberAccessed))
                 continue;
