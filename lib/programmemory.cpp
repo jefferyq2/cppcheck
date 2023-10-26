@@ -204,8 +204,10 @@ static bool evaluateCondition(const std::string& op,
     if (!condition)
         return false;
     if (condition->str() == op) {
-        return evaluateCondition(op, r, condition->astOperand1(), pm, settings) ||
-               evaluateCondition(op, r, condition->astOperand2(), pm, settings);
+        if (evaluateCondition(op, r, condition->astOperand1(), pm, settings) ||
+            evaluateCondition(op, r, condition->astOperand2(), pm, settings)) {
+            return true;
+        }
     }
     MathLib::bigint result = 0;
     bool error = false;
@@ -287,7 +289,7 @@ void programMemoryParseCondition(ProgramMemory& pm, const Token* tok, const Toke
             return;
         if (!truevalue.isIntValue())
             return;
-        if (endTok && isExpressionChanged(vartok, tok->next(), endTok, settings, true))
+        if (endTok && findExpressionChanged(vartok, tok->next(), endTok, settings, true))
             return;
         const bool impossible = (tok->str() == "==" && !then) || (tok->str() == "!=" && then);
         const ValueFlow::Value& v = then ? truevalue : falsevalue;
@@ -309,11 +311,13 @@ void programMemoryParseCondition(ProgramMemory& pm, const Token* tok, const Toke
         if (lhs.empty() || rhs.empty()) {
             if (frontIs(lhs, !then))
                 programMemoryParseCondition(pm, tok->astOperand2(), endTok, settings, then);
-            if (frontIs(rhs, !then))
+            else if (frontIs(rhs, !then))
                 programMemoryParseCondition(pm, tok->astOperand1(), endTok, settings, then);
+            else
+                pm.setIntValue(tok, 0, then);
         }
     } else if (tok->exprId() > 0) {
-        if (endTok && isExpressionChanged(tok, tok->next(), endTok, settings, true))
+        if (endTok && findExpressionChanged(tok, tok->next(), endTok, settings, true))
             return;
         pm.setIntValue(tok, 0, then);
         const Token* containerTok = settings->library.getContainerFromYield(tok, Library::Container::Yield::EMPTY);
@@ -497,7 +501,7 @@ void ProgramMemoryState::removeModifiedVars(const Token* tok)
     state.erase_if([&](const ExprIdToken& e) {
         const Token* start = origins[e.getExpressionId()];
         const Token* expr = e.tok;
-        if (!expr || isExpressionChangedSkipDeadCode(expr, start, tok, settings, true, eval)) {
+        if (!expr || findExpressionChangedSkipDeadCode(expr, start, tok, settings, true, eval)) {
             origins.erase(e.getExpressionId());
             return true;
         }

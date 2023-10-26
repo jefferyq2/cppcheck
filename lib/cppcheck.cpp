@@ -561,7 +561,7 @@ unsigned int CppCheck::check(const ImportProject::FileSettings &fs)
         temp.mSettings.standards.setCPP(fs.standard);
     else if (!fs.standard.empty())
         temp.mSettings.standards.setC(fs.standard);
-    if (fs.platformType != cppcheck::Platform::Type::Unspecified)
+    if (fs.platformType != Platform::Type::Unspecified)
         temp.mSettings.platform.set(fs.platformType);
     if (mSettings.clang) {
         temp.mSettings.includePaths.insert(temp.mSettings.includePaths.end(), fs.systemIncludePaths.cbegin(), fs.systemIncludePaths.cend());
@@ -857,6 +857,13 @@ unsigned int CppCheck::checkFile(const std::string& filename, const std::string 
                     tokenizer.createTokens(std::move(tokensP));
                 }
                 hasValidConfig = true;
+
+                // locations macros
+                mLocationMacros.clear();
+                for (const Token* tok = tokenizer.tokens(); tok; tok = tok->next()) {
+                    if (!tok->getMacroName().empty())
+                        mLocationMacros[Location(files[tok->fileIndex()], tok->linenr())].emplace(tok->getMacroName());
+                }
 
                 // If only errors are printed, print filename after the check
                 if (!mSettings.quiet && (!mCurrentConfig.empty() || checkCount > 1)) {
@@ -1556,8 +1563,17 @@ void CppCheck::reportErr(const ErrorMessage &msg)
     if (!mSettings.buildDir.empty())
         mAnalyzerInformation.reportErr(msg);
 
+    std::set<std::string> macroNames;
+    if (!msg.callStack.empty()) {
+        const std::string &file = msg.callStack.back().getfile(false);
+        int lineNumber = msg.callStack.back().line;
+        const auto it = mLocationMacros.find(Location(file, lineNumber));
+        if (it != mLocationMacros.cend())
+            macroNames = it->second;
+    }
+
     // TODO: only convert if necessary
-    const auto errorMessage = Suppressions::ErrorMessage::fromErrorMessage(msg);
+    const auto errorMessage = Suppressions::ErrorMessage::fromErrorMessage(msg, macroNames);
 
     if (mSettings.nomsg.isSuppressed(errorMessage, mUseGlobalSuppressions)) {
         return;

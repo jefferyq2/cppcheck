@@ -18,7 +18,9 @@
 
 #include "checktype.h"
 #include "errortypes.h"
+#include "helpers.h"
 #include "platform.h"
+#include "preprocessor.h"
 #include "settings.h"
 #include "standards.h"
 #include "fixture.h"
@@ -26,6 +28,8 @@
 
 #include <sstream> // IWYU pragma: keep
 #include <string>
+
+#include <simplecpp.h>
 
 class TestType : public TestFixture {
 public:
@@ -41,6 +45,7 @@ private:
         TEST_CASE(longCastAssign);
         TEST_CASE(longCastReturn);
         TEST_CASE(checkFloatToIntegerOverflow);
+        TEST_CASE(integerOverflow); // #11794
     }
 
 #define check(...) check_(__FILE__, __LINE__, __VA_ARGS__)
@@ -59,9 +64,28 @@ private:
         runChecks<CheckType>(tokenizer, this);
     }
 
+#define checkP(...) checkP_(__FILE__, __LINE__, __VA_ARGS__)
+    void checkP_(const char* file, int line, const char code[], const Settings& settings, const char filename[] = "test.cpp", const simplecpp::DUI& dui = simplecpp::DUI()) {
+        // Clear the error buffer..
+        errout.str("");
+
+        const Settings settings1 = settingsBuilder(settings).severity(Severity::warning).severity(Severity::portability).build();
+
+        Preprocessor preprocessor(settings1);
+        std::vector<std::string> files(1, filename);
+        Tokenizer tokenizer(&settings1, this, &preprocessor);
+        PreprocessorHelper::preprocess(preprocessor, code, files, tokenizer, dui);
+
+        // Tokenizer..
+        ASSERT_LOC(tokenizer.simplifyTokens1(""), file, line);
+
+        // Check..
+        runChecks<CheckType>(tokenizer, this);
+    }
+
     void checkTooBigShift_Unix32() {
         const Settings settings0;
-        const Settings settings = settingsBuilder().platform(cppcheck::Platform::Type::Unix32).build();
+        const Settings settings = settingsBuilder().platform(Platform::Type::Unix32).build();
 
         // unsigned types getting promoted to int sizeof(int) = 4 bytes
         // and unsigned types having already a size of 4 bytes
@@ -234,7 +258,7 @@ private:
     }
 
     void checkIntegerOverflow() {
-        const Settings settings = settingsBuilder().severity(Severity::warning).platform(cppcheck::Platform::Type::Unix32).build();
+        const Settings settings = settingsBuilder().severity(Severity::warning).platform(Platform::Type::Unix32).build();
 
         check("x = (int)0x10000 * (int)0x10000;", settings);
         ASSERT_EQUALS("[test.cpp:1]: (error) Signed integer overflow for expression '(int)0x10000*(int)0x10000'.\n", errout.str());
@@ -275,7 +299,7 @@ private:
 
     void signConversion() {
         const Settings settings0;
-        const Settings settings = settingsBuilder().platform(cppcheck::Platform::Type::Unix64).build();
+        const Settings settings = settingsBuilder().platform(Platform::Type::Unix64).build();
         check("x = -4 * (unsigned)y;", settings0);
         ASSERT_EQUALS("[test.cpp:1]: (warning) Expression '-4' has a negative value. That is converted to an unsigned value and used in an unsigned calculation.\n", errout.str());
 
@@ -324,8 +348,8 @@ private:
     }
 
     void longCastAssign() {
-        const Settings settings = settingsBuilder().severity(Severity::style).platform(cppcheck::Platform::Type::Unix64).build();
-        const Settings settingsWin = settingsBuilder().severity(Severity::style).platform(cppcheck::Platform::Type::Win64).build();
+        const Settings settings = settingsBuilder().severity(Severity::style).platform(Platform::Type::Unix64).build();
+        const Settings settingsWin = settingsBuilder().severity(Severity::style).platform(Platform::Type::Win64).build();
 
         const char code[] = "long f(int x, int y) {\n"
                             "  const long ret = x * y;\n"
@@ -375,8 +399,8 @@ private:
     }
 
     void longCastReturn() {
-        const Settings settings = settingsBuilder().severity(Severity::style).platform(cppcheck::Platform::Type::Unix64).build();
-        const Settings settingsWin = settingsBuilder().severity(Severity::style).platform(cppcheck::Platform::Type::Win64).build();
+        const Settings settings = settingsBuilder().severity(Severity::style).platform(Platform::Type::Unix64).build();
+        const Settings settingsWin = settingsBuilder().severity(Severity::style).platform(Platform::Type::Win64).build();
 
         const char code[] = "long f(int x, int y) {\n"
                             "  return x * y;\n"
@@ -450,6 +474,26 @@ private:
               "  return 1234.5;\n"
               "}", settings);
         ASSERT_EQUALS("[test.cpp:2]: (error) Undefined behaviour: float () to integer conversion overflow.\n", removeFloat(errout.str()));
+    }
+
+    void integerOverflow() { // #11794
+        const Settings settings;
+        // TODO: needs to use preprocessing production code
+        simplecpp::DUI dui;
+        dui.std = "c++11";
+        // this is set by the production code via cppcheck::Platform::getLimitDefines()
+        dui.defines.emplace_back("INT_MIN=-2147483648");
+
+        checkP("int fun(int x)\n"
+               "{\n"
+               "  if(x < 0) x = -x;\n"
+               "  return x >= 0;\n"
+               "}\n"
+               "int f()\n"
+               "{\n"
+               "    fun(INT_MIN);\n"
+               "}", settings, "test.cpp", dui);
+        ASSERT_EQUALS("[test.cpp:3]: (error) Signed integer overflow for expression '-x'.\n", errout.str());
     }
 };
 

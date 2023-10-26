@@ -21,6 +21,7 @@
 
 #include "check.h"
 #include "errorlogger.h"
+#include "errortypes.h"
 #include "library.h"
 #include "mathlib.h"
 #include "platform.h"
@@ -50,7 +51,6 @@
 #include <sstream> // IWYU pragma: keep
 #include <stack>
 #include <stdexcept>
-#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -410,17 +410,15 @@ namespace {
 static Token *splitDefinitionFromTypedef(Token *tok, nonneg int *unnamedCount)
 {
     std::string name;
-    bool isConst = false;
-    Token *tok1 = tok->next();
+    std::set<std::string> qualifiers;
 
-    // skip const if present
-    if (tok1->str() == "const") {
-        tok1->deleteThis();
-        isConst = true;
+    while (Token::Match(tok->next(), "const|volatile")) {
+        qualifiers.insert(tok->next()->str());
+        tok->deleteNext();
     }
 
     // skip "class|struct|union|enum"
-    tok1 = tok1->next();
+    Token *tok1 = tok->tokAt(2);
 
     const bool hasName = Token::Match(tok1, "%name%");
 
@@ -465,8 +463,8 @@ static Token *splitDefinitionFromTypedef(Token *tok, nonneg int *unnamedCount)
     tok1->insertToken("typedef");
     tok1 = tok1->next();
     Token * tok3 = tok1;
-    if (isConst) {
-        tok1->insertToken("const");
+    for (const std::string &qualifier : qualifiers) {
+        tok1->insertToken(qualifier);
         tok1 = tok1->next();
     }
     tok1->insertToken(tok->next()->str()); // struct, union or enum
@@ -806,7 +804,7 @@ namespace {
                 if (pointerType) {
                     tok->insertToken("const");
                     tok->next()->column(tok->column());
-                    tok->next()->isExpandedMacro(tok->previous()->isExpandedMacro());
+                    tok->next()->setMacroName(tok->previous()->getMacroName());
                     tok->deletePrevious();
                 }
             }
@@ -1131,15 +1129,13 @@ void Tokenizer::simplifyTypedef()
 
 void Tokenizer::simplifyTypedefCpp()
 {
-    std::vector<Space> spaceInfo;
     bool isNamespace = false;
-    std::string className;
-    std::string fullClassName;
+    std::string className, fullClassName;
     bool hasClass = false;
     bool goback = false;
 
     // add global namespace
-    spaceInfo.emplace_back(/*Space{}*/);
+    std::vector<Space> spaceInfo(1);
 
     // Convert "using a::b;" to corresponding typedef statements
     simplifyUsingToTypedef();
@@ -1211,7 +1207,10 @@ void Tokenizer::simplifyTypedefCpp()
 
         // pull struct, union, enum or class definition out of typedef
         // use typedef name for unnamed struct, union, enum or class
-        if (Token::Match(tok->next(), "const| struct|enum|union|class %type%| {|:")) {
+        const Token* tokClass = tok->next();
+        while (Token::Match(tokClass, "const|volatile"))
+            tokClass = tokClass->next();
+        if (Token::Match(tokClass, "struct|enum|union|class %type%| {|:")) {
             Token *tok1 = splitDefinitionFromTypedef(tok, &mUnnamedCount);
             if (!tok1)
                 continue;
@@ -1694,7 +1693,7 @@ void Tokenizer::simplifyTypedefCpp()
                         } else {
                             if (scope == 0 && !(classLevel > 1 && tok2 == spaceInfo[classLevel - 1].bodyEnd))
                                 break;
-                            --scope;
+                            scope = std::max(scope - 1, 0);
                         }
                     }
 
@@ -4406,10 +4405,12 @@ void Tokenizer::setVarIdClassFunction(const std::string &classname,
                                       std::map<nonneg int, std::map<std::string, nonneg int>>& structMembers,
                                       nonneg int &varId_)
 {
+    const auto pos = classname.rfind(' '); // TODO handle multiple scopes
+    const std::string lastScope = classname.substr(pos == std::string::npos ? 0 : pos + 1);
     for (Token *tok2 = startToken; tok2 && tok2 != endToken; tok2 = tok2->next()) {
         if (tok2->varId() != 0 || !tok2->isName())
             continue;
-        if (Token::Match(tok2->tokAt(-2), ("!!" + classname + " ::").c_str()))
+        if (Token::Match(tok2->tokAt(-2), ("!!" + lastScope + " ::").c_str()))
             continue;
         if (Token::Match(tok2->tokAt(-4), "%name% :: %name% ::")) // Currently unsupported
             continue;
@@ -5013,8 +5014,7 @@ void Tokenizer::setVarIdPass2()
         const std::string &scopeName(getScopeName(scopeInfo));
         const std::string scopeName2(scopeName.empty() ? std::string() : (scopeName + " :: "));
 
-        std::list<const Token *> classnameTokens;
-        classnameTokens.push_back(tok->next());
+        std::list<const Token*> classnameTokens{ tok->next() };
         Token* tokStart = tok->tokAt(2);
         while (Token::Match(tokStart, ":: %name%") || tokStart->str() == "<") {
             if (tokStart->str() == "<") {
@@ -5615,13 +5615,6 @@ bool Tokenizer::simplifyTokenList1(const char FileName[])
     // TODO: this is only necessary if one typedef simplification had a comma and was used within ?:
     // If typedef handling is refactored and moved to symboldatabase someday we can remove this
     prepareTernaryOpForAST();
-
-    for (Token* tok = list.front(); tok;) {
-        if (Token::Match(tok, "union|struct|class union|struct|class"))
-            tok->deleteNext();
-        else
-            tok = tok->next();
-    }
 
     // class x y {
     if (isCPP() && mSettings->severity.isEnabled(Severity::information)) {
@@ -7172,7 +7165,7 @@ void Tokenizer::simplifyVarDecl(Token * tokBegin, const Token * const tokEnd, co
                 endDecl = endDecl->next();
                 endDecl->next()->isSplittedVarDeclEq(true);
                 endDecl->insertToken(varName->str());
-                endDecl->next()->isExpandedMacro(varName->isExpandedMacro());
+                endDecl->next()->setMacroName(varName->getMacroName());
                 continue;
             }
             //non-VLA case
@@ -8280,7 +8273,8 @@ void Tokenizer::reportUnknownMacros() const
 
     // String concatenation with unknown macros
     for (const Token *tok = tokens(); tok; tok = tok->next()) {
-        if (Token::Match(tok, "%str% %name% (") && Token::Match(tok->linkAt(2), ") %str%")) {
+        if ((Token::Match(tok, "%str% %name% (") && Token::Match(tok->linkAt(2), ") %str%")) ||
+            (Token::Match(tok, "%str% %name% %str%") && !(startsWith(tok->strAt(1), "PRI") || startsWith(tok->strAt(1), "SCN")))) { // TODO: implement macros in std.cfg
             if (tok->next()->isKeyword())
                 continue;
             unknownMacroError(tok->next());
@@ -8931,8 +8925,8 @@ void Tokenizer::simplifyDeclspec()
 {
     for (Token *tok = list.front(); tok; tok = tok->next()) {
         while (isAttribute(tok, false)) {
-            Token *functok = getAttributeFuncTok(tok, false);
             if (Token::Match(tok->tokAt(2), "noreturn|nothrow|dllexport")) {
+                Token *functok = getAttributeFuncTok(tok, false);
                 if (functok) {
                     if (tok->strAt(2) == "noreturn")
                         functok->isAttributeNoreturn(true);
@@ -9766,7 +9760,7 @@ void Tokenizer::simplifyMicrosoftStringFunctions()
     if (!mSettings->platform.isWindows())
         return;
 
-    const bool ansi = mSettings->platform.type == cppcheck::Platform::Type::Win32A;
+    const bool ansi = mSettings->platform.type == Platform::Type::Win32A;
     for (Token *tok = list.front(); tok; tok = tok->next()) {
         if (tok->strAt(1) != "(")
             continue;

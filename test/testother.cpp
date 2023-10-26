@@ -61,6 +61,7 @@ private:
         TEST_CASE(zeroDiv16); // #11158
         TEST_CASE(zeroDiv17); // #9931
         TEST_CASE(zeroDiv18);
+        TEST_CASE(zeroDiv19);
 
         TEST_CASE(zeroDivCond); // division by zero / useless condition
 
@@ -352,7 +353,7 @@ private:
 
     void checkInterlockedDecrement(const char code[]) {
         Settings settings;
-        settings.platform.type = cppcheck::Platform::Type::Win32A;
+        settings.platform.type = Platform::Type::Win32A;
 
         check(code, nullptr, false, true, false, &settings);
     }
@@ -653,6 +654,15 @@ private:
         ASSERT_EQUALS(
             "[test.cpp:2] -> [test.cpp:3]: (warning) Either the condition 'x==y' is redundant or there is division by zero at line 3.\n",
             errout.str());
+    }
+
+    void zeroDiv19()
+    {
+        check("void f() {\n" // #2456
+              "    for (int i = 0;;)\n"
+              "        int j = 10 / i;\n"
+              "}\n");
+        ASSERT_EQUALS("[test.cpp:3]: (error) Division by zero.\n", errout.str());
     }
 
     void zeroDivCond() {
@@ -2149,7 +2159,15 @@ private:
               "T::T(std::string s) noexcept(true) : m(std::move(s)) {}\n");
         ASSERT_EQUALS("", errout.str());
 
-        Settings settings1 = settingsBuilder().platform(cppcheck::Platform::Type::Win64).build();
+        check("namespace N {\n" // #12086
+              "    void g(int);\n"
+              "}\n"
+              "void f(std::vector<int> v) {\n"
+              "    N::g(v[0]);\n"
+              "}\n");
+        ASSERT_EQUALS("[test.cpp:4]: (performance) Function parameter 'v' should be passed by const reference.\n", errout.str());
+
+        Settings settings1 = settingsBuilder().platform(Platform::Type::Win64).build();
         check("using ui64 = unsigned __int64;\n"
               "ui64 Test(ui64 one, ui64 two) { return one + two; }\n",
               /*filename*/ nullptr, /*inconclusive*/ true, /*runSimpleChecks*/ true, /*verbose*/ false, &settings1);
@@ -2294,11 +2312,11 @@ private:
                                 "};\n"
                                 "void f(X x) {}";
 
-            Settings s32 = settingsBuilder(_settings).platform(cppcheck::Platform::Type::Unix32).build();
+            Settings s32 = settingsBuilder(_settings).platform(Platform::Type::Unix32).build();
             check(code, &s32);
             ASSERT_EQUALS("[test.cpp:5]: (performance) Function parameter 'x' should be passed by const reference.\n", errout.str());
 
-            Settings s64 = settingsBuilder(_settings).platform(cppcheck::Platform::Type::Unix64).build();
+            Settings s64 = settingsBuilder(_settings).platform(Platform::Type::Unix64).build();
             check(code, &s64);
             ASSERT_EQUALS("", errout.str());
         }
@@ -5867,6 +5885,11 @@ private:
               "    std::array<std::array<double,3>,3> array;\n"
               "}\n");
         ASSERT_EQUALS("", errout.str());
+
+        check("void f(const std::vector<int*>& v) {\n" // #12088
+              "    for (auto it = v.begin(); it != v.end(); delete *it++);\n"
+              "}\n");
+        ASSERT_EQUALS("", errout.str());
     }
 
     void duplicateBranch() {
@@ -6851,6 +6874,31 @@ private:
         ASSERT_EQUALS("[test.cpp:3]: (style) The comparison '0 > E0' is always false.\n"
                       "[test.cpp:4]: (style) The comparison 'E0 > 0' is always false.\n"
                       "[test.cpp:5]: (style) The comparison 'E0 == 0' is always true.\n",
+                      errout.str());
+
+        check("struct S {\n" // #12040, #12044
+              "    static const int I = 0;\n"
+              "    enum { E0 };\n"
+              "    enum F { F0 };\n"
+              "    void f() {\n"
+              "        if (0 > I) {}\n"
+              "        if (0 > S::I) {}\n"
+              "        if (0 > E0) {}\n"
+              "        if (0 > S::E0) {}\n"
+              "    }\n"
+              "};\n"
+              "void g() {\n"
+              "    if (0 > S::I) {}\n"
+              "    if (0 > S::E0) {}\n"
+              "    if (0 > S::F::F0) {}\n"
+              "}\n");
+        ASSERT_EQUALS("[test.cpp:2] -> [test.cpp:6]: (style) The comparison '0 > I' is always false.\n"
+                      "[test.cpp:2] -> [test.cpp:7]: (style) The comparison '0 > S::I' is always false.\n"
+                      "[test.cpp:8]: (style) The comparison '0 > E0' is always false.\n"
+                      "[test.cpp:9]: (style) The comparison '0 > S::E0' is always false.\n"
+                      "[test.cpp:2] -> [test.cpp:13]: (style) The comparison '0 > S::I' is always false.\n"
+                      "[test.cpp:14]: (style) The comparison '0 > S::E0' is always false.\n"
+                      "[test.cpp:15]: (style) The comparison '0 > S::F::F0' is always false.\n",
                       errout.str());
     }
 
@@ -7916,7 +7964,7 @@ private:
         ASSERT_EQUALS("[test.cpp:3]: (style) Checking if unsigned expression 'value' is less than zero.\n", errout.str());
 
         // #9040
-        Settings settings1 = settingsBuilder().platform(cppcheck::Platform::Type::Win64).build();
+        Settings settings1 = settingsBuilder().platform(Platform::Type::Win64).build();
         check("using BOOL = unsigned;\n"
               "int i;\n"
               "bool f() {\n"
