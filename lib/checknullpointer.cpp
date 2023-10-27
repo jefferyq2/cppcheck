@@ -21,6 +21,7 @@
 #include "checknullpointer.h"
 
 #include "astutils.h"
+#include "ctu.h"
 #include "errorlogger.h"
 #include "errortypes.h"
 #include "library.h"
@@ -452,8 +453,7 @@ void CheckNullPointer::nullPointerError(const Token *tok, const std::string &var
     } else if (value->defaultArg) {
         reportError(errorPath, Severity::warning, "nullPointerDefaultArg", errmsgdefarg, CWE_NULL_POINTER_DEREFERENCE, inconclusive || value->isInconclusive() ? Certainty::inconclusive : Certainty::normal);
     } else {
-        std::string errmsg;
-        errmsg = std::string(value->isKnown() ? "Null" : "Possible null") + " pointer dereference";
+        std::string errmsg = std::string(value->isKnown() ? "Null" : "Possible null") + " pointer dereference";
         if (!varname.empty())
             errmsg = "$symbol:" + varname + '\n' + errmsg + ": $symbol";
 
@@ -467,7 +467,7 @@ void CheckNullPointer::nullPointerError(const Token *tok, const std::string &var
 
 void CheckNullPointer::arithmetic()
 {
-    logChecker("CheckNullPointer::aithmetic");
+    logChecker("CheckNullPointer::arithmetic");
     const SymbolDatabase *symbolDatabase = mTokenizer->getSymbolDatabase();
     for (const Scope * scope : symbolDatabase->functionScopes) {
         for (const Token* tok = scope->bodyStart->next(); tok != scope->bodyEnd; tok = tok->next()) {
@@ -548,11 +548,6 @@ void CheckNullPointer::redundantConditionWarning(const Token* tok, const ValueFl
                 inconclusive ? Certainty::inconclusive : Certainty::normal);
 }
 
-std::string CheckNullPointer::MyFileInfo::toString() const
-{
-    return CTU::toString(unsafeUsage);
-}
-
 // NOLINTNEXTLINE(readability-non-const-parameter) - used as callback so we need to preserve the signature
 static bool isUnsafeUsage(const Check *check, const Token *vartok, MathLib::bigint *value)
 {
@@ -561,6 +556,22 @@ static bool isUnsafeUsage(const Check *check, const Token *vartok, MathLib::bigi
     bool unknown = false;
     return checkNullPointer && checkNullPointer->isPointerDeRef(vartok, unknown);
 }
+
+namespace {
+    /* data for multifile checking */
+    class MyFileInfo : public Check::FileInfo {
+    public:
+        /** function arguments that are dereferenced without checking if they are null */
+        std::list<CTU::FileInfo::UnsafeUsage> unsafeUsage;
+
+        /** Convert data into xml string */
+        std::string toString() const override
+        {
+            return CTU::toString(unsafeUsage);
+        }
+    };
+}
+
 
 Check::FileInfo *CheckNullPointer::getFileInfo(const Tokenizer *tokenizer, const Settings *settings) const
 {

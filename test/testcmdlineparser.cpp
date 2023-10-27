@@ -16,11 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "cmdlinelogger.h"
 #include "cmdlineparser.h"
 #include "config.h"
 #include "cppcheckexecutor.h"
 #include "errortypes.h"
 #include "helpers.h"
+#include "importproject.h"
 #include "platform.h"
 #include "redirect.h"
 #include "settings.h"
@@ -33,8 +35,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <list>
+#include <memory>
 #include <set>
+#include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 class TestCmdlineParser : public TestFixture {
@@ -250,11 +255,16 @@ private:
         TEST_CASE(errorlistverbose1);
         TEST_CASE(errorlistverbose2);
         TEST_CASE(ignorepathsnopath);
+#if defined(USE_WINDOWS_SEH) || defined(USE_UNIX_SIGNAL_HANDLING)
         TEST_CASE(exceptionhandling);
         TEST_CASE(exceptionhandling2);
         TEST_CASE(exceptionhandling3);
         TEST_CASE(exceptionhandlingInvalid);
         TEST_CASE(exceptionhandlingInvalid2);
+#else
+        TEST_CASE(exceptionhandlingNotSupported);
+        TEST_CASE(exceptionhandlingNotSupported2);
+#endif
         TEST_CASE(clang);
         TEST_CASE(clang2);
         TEST_CASE(clangInvalid);
@@ -270,6 +280,8 @@ private:
         TEST_CASE(loadAverage);
         TEST_CASE(loadAverage2);
         TEST_CASE(loadAverageInvalid);
+#else
+        TEST_CASE(loadAverageNotSupported);
 #endif
         TEST_CASE(maxCtuDepth);
         TEST_CASE(maxCtuDepthInvalid);
@@ -292,6 +304,19 @@ private:
         TEST_CASE(projectMissing);
         TEST_CASE(projectNoPaths);
         TEST_CASE(addon);
+#ifdef HAVE_RULES
+        TEST_CASE(rule);
+#else
+        TEST_CASE(ruleNotSupported);
+#endif
+#ifdef HAVE_RULES
+        TEST_CASE(ruleFile);
+        TEST_CASE(ruleFileEmpty);
+        TEST_CASE(ruleFileMissing);
+        TEST_CASE(ruleFileInvalid);
+#else
+        TEST_CASE(ruleFileNotSupported);
+#endif
 
         TEST_CASE(ignorepaths1);
         TEST_CASE(ignorepaths2);
@@ -970,8 +995,8 @@ private:
         ASSERT_EQUALS(true, parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(2, settings->nofail.getSuppressions().size());
         auto it = settings->nofail.getSuppressions().cbegin();
-        ASSERT_EQUALS("uninitvar", (*it++).errorId);
-        ASSERT_EQUALS("unusedFunction", (*it).errorId);
+        ASSERT_EQUALS("uninitvar", (it++)->errorId);
+        ASSERT_EQUALS("unusedFunction", it->errorId);
         ASSERT_EQUALS("", logger->str());
     }
 
@@ -1190,90 +1215,90 @@ private:
     void platformWin64() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--platform=win64", "file.cpp"};
-        ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
+        ASSERT(settings->platform.set(Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(cppcheck::Platform::Type::Win64, settings->platform.type);
+        ASSERT_EQUALS(Platform::Type::Win64, settings->platform.type);
         ASSERT_EQUALS("", logger->str());
     }
 
     void platformWin32A() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--platform=win32A", "file.cpp"};
-        ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
+        ASSERT(settings->platform.set(Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(cppcheck::Platform::Type::Win32A, settings->platform.type);
+        ASSERT_EQUALS(Platform::Type::Win32A, settings->platform.type);
         ASSERT_EQUALS("", logger->str());
     }
 
     void platformWin32W() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--platform=win32W", "file.cpp"};
-        ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
+        ASSERT(settings->platform.set(Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(cppcheck::Platform::Type::Win32W, settings->platform.type);
+        ASSERT_EQUALS(Platform::Type::Win32W, settings->platform.type);
         ASSERT_EQUALS("", logger->str());
     }
 
     void platformUnix32() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--platform=unix32", "file.cpp"};
-        ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
+        ASSERT(settings->platform.set(Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(cppcheck::Platform::Type::Unix32, settings->platform.type);
+        ASSERT_EQUALS(Platform::Type::Unix32, settings->platform.type);
         ASSERT_EQUALS("", logger->str());
     }
 
     void platformUnix32Unsigned() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--platform=unix32-unsigned", "file.cpp"};
-        ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
+        ASSERT(settings->platform.set(Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(cppcheck::Platform::Type::Unix32, settings->platform.type);
+        ASSERT_EQUALS(Platform::Type::Unix32, settings->platform.type);
         ASSERT_EQUALS("", logger->str());
     }
 
     void platformUnix64() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--platform=unix64", "file.cpp"};
-        ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
+        ASSERT(settings->platform.set(Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(cppcheck::Platform::Type::Unix64, settings->platform.type);
+        ASSERT_EQUALS(Platform::Type::Unix64, settings->platform.type);
         ASSERT_EQUALS("", logger->str());
     }
 
     void platformUnix64Unsigned() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--platform=unix64-unsigned", "file.cpp"};
-        ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
+        ASSERT(settings->platform.set(Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(cppcheck::Platform::Type::Unix64, settings->platform.type);
+        ASSERT_EQUALS(Platform::Type::Unix64, settings->platform.type);
         ASSERT_EQUALS("", logger->str());
     }
 
     void platformNative() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--platform=native", "file.cpp"};
-        ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
+        ASSERT(settings->platform.set(Platform::Type::Unspecified));
         ASSERT(parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(cppcheck::Platform::Type::Native, settings->platform.type);
+        ASSERT_EQUALS(Platform::Type::Native, settings->platform.type);
         ASSERT_EQUALS("", logger->str());
     }
 
     void platformUnspecified() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--platform=unspecified", "file.cpp"};
-        ASSERT(settings->platform.set(cppcheck::Platform::Type::Native));
+        ASSERT(settings->platform.set(Platform::Type::Native));
         ASSERT(parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(cppcheck::Platform::Type::Unspecified, settings->platform.type);
+        ASSERT_EQUALS(Platform::Type::Unspecified, settings->platform.type);
         ASSERT_EQUALS("", logger->str());
     }
 
     void platformPlatformFile() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--platform=avr8", "file.cpp"};
-        ASSERT(settings->platform.set(cppcheck::Platform::Type::Unspecified));
+        ASSERT(settings->platform.set(Platform::Type::Unspecified));
         ASSERT_EQUALS(true, parser->parseFromArgs(3, argv));
-        ASSERT_EQUALS(cppcheck::Platform::Type::File, settings->platform.type);
+        ASSERT_EQUALS(Platform::Type::File, settings->platform.type);
         ASSERT_EQUALS("", logger->str());
     }
 
@@ -1318,8 +1343,8 @@ private:
         ASSERT_EQUALS(true, parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(2, settings->nomsg.getSuppressions().size());
         auto it = settings->nomsg.getSuppressions().cbegin();
-        ASSERT_EQUALS("uninitvar", (*it++).errorId);
-        ASSERT_EQUALS("unusedFunction", (*it).errorId);
+        ASSERT_EQUALS("uninitvar", (it++)->errorId);
+        ASSERT_EQUALS("unusedFunction", it->errorId);
         ASSERT_EQUALS("", logger->str());
     }
 
@@ -1698,6 +1723,7 @@ private:
         ASSERT_EQUALS("cppcheck: error: argument to '-i' is missing.\n", logger->str());
     }
 
+#if defined(USE_WINDOWS_SEH) || defined(USE_UNIX_SIGNAL_HANDLING)
     void exceptionhandling() {
         REDIRECT;
         const char * const argv[] = {"cppcheck", "--exception-handling", "file.cpp"};
@@ -1744,6 +1770,21 @@ private:
         ASSERT_EQUALS(false, parser->parseFromArgs(2, argv));
         ASSERT_EQUALS("cppcheck: error: unrecognized command line option: \"--exception-handling-foo\".\n", logger->str());
     }
+#else
+    void exceptionhandlingNotSupported() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--exception-handling", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: Option --exception-handling is not supported since Cppcheck has not been built with any exception handling enabled.\n", logger->str());
+    }
+
+    void exceptionhandlingNotSupported2() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--exception-handling=stderr", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: Option --exception-handling is not supported since Cppcheck has not been built with any exception handling enabled.\n", logger->str());
+    }
+#endif
 
     void clang() {
         REDIRECT;
@@ -1860,6 +1901,13 @@ private:
         const char * const argv[] = {"cppcheck", "-l", "one", "file.cpp"};
         ASSERT(!parser->parseFromArgs(4, argv));
         ASSERT_EQUALS("cppcheck: error: argument to '-l' is not valid - not an integer.\n", logger->str());
+    }
+#else
+    void loadAverageNotSupported() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "-l", "12", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(4, argv));
+        ASSERT_EQUALS("cppcheck: error: Option -l cannot be used as Cppcheck has not been built with fork threading model.\n", logger->str());
     }
 #endif
 
@@ -2020,6 +2068,72 @@ private:
         ASSERT_EQUALS("misra", *settings->addons.cbegin());
         ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
     }
+
+#ifdef HAVE_RULES
+    void rule() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--rule=.+", "file.cpp"};
+        ASSERT(parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS(1, settings->rules.size());
+        auto it = settings->rules.cbegin();
+        ASSERT_EQUALS(".+", it->pattern);
+        ASSERT_EQUALS("", logger->str());
+    }
+#else
+    void ruleNotSupported() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--rule=.+", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: Option --rule cannot be used as Cppcheck has not been built with rules support.\n", logger->str());
+    }
+#endif
+
+#ifdef HAVE_RULES
+    void ruleFile() {
+        REDIRECT;
+        ScopedFile file("rule.xml",
+                        "<rules>\n"
+                        "<rule>\n"
+                        "<pattern>.+</pattern>\n"
+                        "</rule>\n"
+                        "</rules>");
+        const char * const argv[] = {"cppcheck", "--rule-file=rule.xml", "file.cpp"};
+        ASSERT(parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS(1, settings->rules.size());
+        auto it = settings->rules.cbegin();
+        ASSERT_EQUALS(".+", it->pattern);
+        ASSERT_EQUALS("", logger->str());
+    }
+
+    void ruleFileEmpty() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--rule-file=", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: unable to load rule-file '' (XML_ERROR_FILE_NOT_FOUND).\n", logger->str());
+    }
+
+    void ruleFileMissing() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--rule-file=rule.xml", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: unable to load rule-file 'rule.xml' (XML_ERROR_FILE_NOT_FOUND).\n", logger->str());
+    }
+
+    void ruleFileInvalid() {
+        REDIRECT;
+        ScopedFile file("rule.xml", "");
+        const char * const argv[] = {"cppcheck", "--rule-file=rule.xml", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: unable to load rule-file 'rule.xml' (XML_ERROR_EMPTY_DOCUMENT).\n", logger->str());
+    }
+#else
+    void ruleFileNotSupported() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--rule-file=rule.xml", "file.cpp"};
+        ASSERT(!parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS("cppcheck: error: Option --rule-file cannot be used as Cppcheck has not been built with rules support.\n", logger->str());
+    }
+#endif
 
     void ignorepaths1() {
         REDIRECT;

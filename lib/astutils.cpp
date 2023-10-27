@@ -1181,7 +1181,7 @@ static const Token * followVariableExpression(const Token * tok, bool cpp, const
             return tok;
     } else if (!precedes(startToken, endToken)) {
         return tok;
-    } else if (isExpressionChanged(varTok, startToken, endToken, nullptr, cpp)) {
+    } else if (findExpressionChanged(varTok, startToken, endToken, nullptr, cpp)) {
         return tok;
     }
     return varTok;
@@ -1506,7 +1506,11 @@ bool isSameExpression(bool cpp, bool macro, const Token *tok1, const Token *tok2
     if (cpp) {
         if (tok1->str() == "." && tok1->astOperand1() && tok1->astOperand1()->str() == "this")
             tok1 = tok1->astOperand2();
+        while (Token::simpleMatch(tok1, "::") && tok1->astOperand2())
+            tok1 = tok1->astOperand2();
         if (tok2->str() == "." && tok2->astOperand1() && tok2->astOperand1()->str() == "this")
+            tok2 = tok2->astOperand2();
+        while (Token::simpleMatch(tok2, "::") && tok2->astOperand2())
             tok2 = tok2->astOperand2();
     }
     // Skip double not
@@ -1549,7 +1553,7 @@ bool isSameExpression(bool cpp, bool macro, const Token *tok1, const Token *tok2
                 const Token *start = refTok1, *end = refTok2;
                 if (!precedes(start, end))
                     std::swap(start, end);
-                if (isExpressionChanged(start, start, end, nullptr, cpp))
+                if (findExpressionChanged(start, start, end, nullptr, cpp))
                     return false;
             }
             return isSameExpression(cpp, macro, refTok1, refTok2, library, pure, followVar, errors);
@@ -1966,7 +1970,7 @@ bool isConstFunctionCall(const Token* ftok, const Library& library)
             return false;
         if (container->getYield(ftok->str()) != Library::Container::Yield::NO_YIELD)
             return true;
-        if (container->getAction(ftok->str()) == Library::Container::Action::FIND)
+        if (container->getAction(ftok->str()) == Library::Container::Action::FIND_CONST)
             return true;
         return false;
     } else if (const Library::Function* lf = library.getFunction(ftok)) {
@@ -1974,7 +1978,7 @@ bool isConstFunctionCall(const Token* ftok, const Library& library)
             return true;
         if (lf->containerYield != Library::Container::Yield::NO_YIELD)
             return true;
-        if (lf->containerAction == Library::Container::Action::FIND)
+        if (lf->containerAction == Library::Container::Action::FIND_CONST)
             return true;
         return false;
     } else {
@@ -2582,6 +2586,7 @@ bool isVariableChanged(const Token *tok, int indirect, const Settings *settings,
                           Library::Container::Action::CHANGE_CONTENT,
                           Library::Container::Action::CHANGE_INTERNAL,
                           Library::Container::Action::CLEAR,
+                          Library::Container::Action::FIND,
                           Library::Container::Action::PUSH,
                           Library::Container::Action::POP,
                           Library::Container::Action::RESIZE},
@@ -2824,7 +2829,7 @@ bool isVariableChanged(const Variable * var, const Settings *settings, bool cpp,
         if (next)
             start = next;
     }
-    return isExpressionChanged(var->nameToken(), start->next(), var->scope()->bodyEnd, settings, cpp, depth);
+    return findExpressionChanged(var->nameToken(), start->next(), var->scope()->bodyEnd, settings, cpp, depth);
 }
 
 bool isVariablesChanged(const Token* start,
@@ -2870,34 +2875,36 @@ bool isThisChanged(const Token* tok, int indirect, const Settings* settings, boo
     return false;
 }
 
-bool isThisChanged(const Token* start, const Token* end, int indirect, const Settings* settings, bool cpp)
+const Token* findThisChanged(const Token* start, const Token* end, int indirect, const Settings* settings, bool cpp)
 {
     if (!precedes(start, end))
-        return false;
+        return nullptr;
     for (const Token* tok = start; tok != end; tok = tok->next()) {
         if (!exprDependsOnThis(tok))
             continue;
         if (isThisChanged(tok, indirect, settings, cpp))
-            return true;
+            return tok;
     }
-    return false;
+    return nullptr;
 }
 
 template<class Find>
-bool isExpressionChangedImpl(const Token* expr,
-                             const Token* start,
-                             const Token* end,
-                             const Settings* settings,
-                             bool cpp,
-                             int depth,
-                             Find find)
+const Token* findExpressionChangedImpl(const Token* expr,
+                                       const Token* start,
+                                       const Token* end,
+                                       const Settings* settings,
+                                       bool cpp,
+                                       int depth,
+                                       Find find)
 {
     if (depth < 0)
-        return true;
+        return start;
     if (!precedes(start, end))
-        return false;
-    const Token* result = findAstNode(expr, [&](const Token* tok) {
-        if (exprDependsOnThis(tok) && isThisChanged(start, end, false, settings, cpp)) {
+        return nullptr;
+    const Token* result = nullptr;
+    findAstNode(expr, [&](const Token* tok) {
+        if (exprDependsOnThis(tok)) {
+            result = findThisChanged(start, end, false, settings, cpp);
             return true;
         }
         bool global = false;
@@ -2911,7 +2918,7 @@ bool isExpressionChangedImpl(const Token* expr,
         }
 
         if (tok->exprId() > 0) {
-            const Token* result = find(start, end, [&](const Token* tok2) {
+            const Token* modifedTok = find(start, end, [&](const Token* tok2) {
                 int indirect = 0;
                 if (const ValueType* vt = tok->valueType()) {
                     indirect = vt->pointer;
@@ -2923,8 +2930,10 @@ bool isExpressionChangedImpl(const Token* expr,
                         return true;
                 return false;
             });
-            if (result)
+            if (modifedTok) {
+                result = modifedTok;
                 return true;
+            }
         }
         return false;
     });
@@ -2953,20 +2962,25 @@ struct ExpressionChangedSkipDeadCode {
     }
 };
 
-bool isExpressionChanged(const Token* expr, const Token* start, const Token* end, const Settings* settings, bool cpp, int depth)
+const Token* findExpressionChanged(const Token* expr,
+                                   const Token* start,
+                                   const Token* end,
+                                   const Settings* settings,
+                                   bool cpp,
+                                   int depth)
 {
-    return isExpressionChangedImpl(expr, start, end, settings, cpp, depth, ExpressionChangedSimpleFind{});
+    return findExpressionChangedImpl(expr, start, end, settings, cpp, depth, ExpressionChangedSimpleFind{});
 }
 
-bool isExpressionChangedSkipDeadCode(const Token* expr,
-                                     const Token* start,
-                                     const Token* end,
-                                     const Settings* settings,
-                                     bool cpp,
-                                     const std::function<std::vector<MathLib::bigint>(const Token* tok)>& evaluate,
-                                     int depth)
+const Token* findExpressionChangedSkipDeadCode(const Token* expr,
+                                               const Token* start,
+                                               const Token* end,
+                                               const Settings* settings,
+                                               bool cpp,
+                                               const std::function<std::vector<MathLib::bigint>(const Token* tok)>& evaluate,
+                                               int depth)
 {
-    return isExpressionChangedImpl(
+    return findExpressionChangedImpl(
         expr, start, end, settings, cpp, depth, ExpressionChangedSkipDeadCode{&settings->library, evaluate});
 }
 
@@ -3042,7 +3056,7 @@ const Token* getIteratorExpression(const Token* tok)
     return nullptr;
 }
 
-bool isIteratorPair(std::vector<const Token*> args)
+bool isIteratorPair(const std::vector<const Token*>& args)
 {
     if (args.size() != 2)
         return false;
@@ -3248,9 +3262,11 @@ static ExprUsage getFunctionUsage(const Token* tok, int indirect, const Settings
 
 ExprUsage getExprUsage(const Token* tok, int indirect, const Settings* settings, bool cpp)
 {
-    const Token* const parent = tok->astParent();
+    const Token* parent = tok->astParent();
     if (indirect > 0 && parent) {
-        if (Token::Match(parent, "%assign%") && astIsRHS(tok))
+        while (Token::simpleMatch(parent, "[") && parent->astParent())
+            parent = parent->astParent();
+        if (Token::Match(parent, "%assign%") && (astIsRHS(tok) || astIsLHS(parent->astOperand1())))
             return ExprUsage::NotUsed;
         if (parent->isConstOp())
             return ExprUsage::NotUsed;

@@ -36,14 +36,10 @@
 #include <map>
 #include <set>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
-namespace cppcheck {
-    class Platform;
-}
-
+class Platform;
 class ErrorLogger;
 class Function;
 class Scope;
@@ -1298,7 +1294,7 @@ public:
 
     bool isConst(nonneg int indirect = 0) const;
 
-    MathLib::bigint typeSize(const cppcheck::Platform &platform, bool p=false) const;
+    MathLib::bigint typeSize(const Platform &platform, bool p=false) const;
 
     /// Check if type is the same ignoring const and references
     bool isTypeEqual(const ValueType* that) const;

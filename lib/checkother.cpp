@@ -889,7 +889,7 @@ static bool isSimpleExpr(const Token* tok, const Variable* var, const Settings* 
             ((ftok->function() && ftok->function()->isConst()) || settings->library.isFunctionConst(ftok->str(), /*pure*/ true)))
             needsCheck = true;
     }
-    return (needsCheck && !isExpressionChanged(tok, tok->astParent(), var->scope()->bodyEnd, settings, true));
+    return (needsCheck && !findExpressionChanged(tok, tok->astParent(), var->scope()->bodyEnd, settings, true));
 }
 
 //---------------------------------------------------------------------------
@@ -1281,27 +1281,11 @@ static bool canBeConst(const Variable *var, const Settings* settings)
             if (parent->str() == ">>" && parent->astOperand2() == tok2)
                 return false;
         } else if (parent->str() == "," || parent->str() == "(") { // function argument
-            const Token* tok3 = tok2->previous();
-            int argNr = 0;
-            while (tok3 && tok3->str() != "(") {
-                if (tok3->link() && Token::Match(tok3, ")|]|}|>"))
-                    tok3 = tok3->link();
-                else if (tok3->link())
-                    break;
-                else if (tok3->str() == ";")
-                    break;
-                else if (tok3->str() == ",")
-                    argNr++;
-                tok3 = tok3->previous();
-            }
-            if (!tok3 || tok3->str() != "(")
-                return false;
-            const Token* functionTok = tok3->astOperand1();
+            int argNr = -1;
+            const Token* functionTok = getTokenArgumentFunction(tok2, argNr);
             if (!functionTok)
                 return false;
             const Function* tokFunction = functionTok->function();
-            if (!tokFunction && functionTok->str() == "." && (functionTok = functionTok->astOperand2()))
-                tokFunction = functionTok->function();
             if (tokFunction) {
                 const Variable* argVar = tokFunction->getArgumentVar(argNr);
                 if (!argVar || (!argVar->isConst() && argVar->isReference()))
@@ -1892,7 +1876,7 @@ static bool isBracketAccess(const Token* tok)
 }
 
 static bool isConstant(const Token* tok) {
-    return Token::Match(tok, "%bool%|%num%|%str%|%char%|nullptr|NULL");
+    return tok && (tok->isEnumerator() || Token::Match(tok, "%bool%|%num%|%str%|%char%|nullptr|NULL"));
 }
 
 static bool isConstStatement(const Token *tok, bool cpp)
@@ -1910,8 +1894,12 @@ static bool isConstStatement(const Token *tok, bool cpp)
         return false;
     if (Token::Match(tok, "<<|>>") && !astIsIntegral(tok, false))
         return false;
-    if (tok->astTop() && Token::simpleMatch(tok->astTop()->astOperand1(), "delete"))
-        return false;
+    const Token* tok2 = tok;
+    while (tok2) {
+        if (Token::simpleMatch(tok2->astOperand1(), "delete"))
+            return false;
+        tok2 = tok2->astParent();
+    }
     if (Token::Match(tok, "&&|%oror%"))
         return isConstStatement(tok->astOperand1(), cpp) && isConstStatement(tok->astOperand2(), cpp);
     if (Token::Match(tok, "!|~|%cop%") && (tok->astOperand1() || tok->astOperand2()))
@@ -2072,6 +2060,8 @@ void CheckOther::constStatementError(const Token *tok, const std::string &type, 
             typeStr = "character";
         else if (isNullOperand(valueTok))
             typeStr = "NULL";
+        else if (valueTok->isEnumerator())
+            typeStr = "enumerator";
         msg = "Redundant code: Found a statement that begins with " + typeStr + " constant.";
     }
     else if (!tok)
@@ -2594,7 +2584,8 @@ void CheckOther::checkDuplicateExpression()
                                      &errorPath)) {
                     if (isWithoutSideEffects(cpp, tok->astOperand1())) {
                         const Token* loopTok = isInLoopCondition(tok);
-                        if (!loopTok || !isExpressionChanged(tok, tok, loopTok->link()->next()->link(), mSettings, cpp)) {
+                        if (!loopTok ||
+                            !findExpressionChanged(tok, tok, loopTok->link()->next()->link(), mSettings, cpp)) {
                             const bool isEnum = tok->scope()->type == Scope::eEnum;
                             const bool assignment = !isEnum && tok->str() == "=";
                             if (assignment && warningEnabled)

@@ -46,18 +46,9 @@ class Settings;
 class Type;
 class ValueType;
 class Variable;
-class TokenList;
 class ConstTokenRange;
 class Token;
-
-/**
- * @brief This struct stores pointers to the front and back tokens of the list this token is in.
- */
-struct TokensFrontBack {
-    Token *front{};
-    Token* back{};
-    const TokenList* list{};
-};
+struct TokensFrontBack;
 
 struct ScopeInfo2 {
     ScopeInfo2(std::string name_, const Token *bodyEnd_, std::set<std::string> usingNamespaces_ = std::set<std::string>()) : name(std::move(name_)), bodyEnd(bodyEnd_), usingNamespaces(std::move(usingNamespaces_)) {}
@@ -105,6 +96,9 @@ struct TokenImpl {
 
     // original name like size_t
     std::string* mOriginalName{};
+
+    // If this token came from a macro replacement list, this is the name of that macro
+    std::string mMacroName;
 
     // ValueType
     ValueType* mValueType{};
@@ -461,10 +455,7 @@ public:
         setFlag(fIsStandardType, b);
     }
     bool isExpandedMacro() const {
-        return getFlag(fIsExpandedMacro);
-    }
-    void isExpandedMacro(const bool m) {
-        setFlag(fIsExpandedMacro, m);
+        return !mImpl->mMacroName.empty();
     }
     bool isCast() const {
         return getFlag(fIsCast);
@@ -761,6 +752,13 @@ public:
     }
     void isTemplateArg(const bool value) {
         setFlag(fIsTemplateArg, value);
+    }
+
+    std::string getMacroName() const {
+        return mImpl->mMacroName;
+    }
+    void setMacroName(std::string name) {
+        mImpl->mMacroName = std::move(name);
     }
 
     template<size_t count>
@@ -1305,7 +1303,7 @@ private:
         fIsPointerCompare       = (1ULL << 2),
         fIsLong                 = (1ULL << 3),
         fIsStandardType         = (1ULL << 4),
-        fIsExpandedMacro        = (1ULL << 5),
+        //fIsExpandedMacro        = (1ULL << 5),
         fIsCast                 = (1ULL << 6),
         fIsAttributeConstructor = (1ULL << 7),  // __attribute__((constructor)) __attribute__((constructor(priority)))
         fIsAttributeDestructor  = (1ULL << 8),  // __attribute__((destructor))  __attribute__((destructor(priority)))
@@ -1317,7 +1315,7 @@ private:
         fIsAttributeUsed        = (1ULL << 14), // __attribute__((used))
         fIsAttributePacked      = (1ULL << 15), // __attribute__((packed))
         fIsAttributeExport      = (1ULL << 16), // __attribute__((__visibility__("default"))), __declspec(dllexport)
-        fIsAttributeMaybeUnused = (1ULL << 17), // [[maybe_unsed]]
+        fIsAttributeMaybeUnused = (1ULL << 17), // [[maybe_unused]]
         fIsAttributeNodiscard   = (1ULL << 18), // __attribute__ ((warn_unused_result)), [[nodiscard]]
         fIsControlFlowKeyword   = (1ULL << 19), // if/switch/while/...
         fIsOperatorKeyword      = (1ULL << 20), // operator=, etc

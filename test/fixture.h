@@ -24,7 +24,6 @@
 #include "color.h"
 #include "config.h"
 #include "errorlogger.h"
-#include "errortypes.h"
 #include "library.h"
 #include "platform.h"
 #include "settings.h"
@@ -39,6 +38,8 @@
 
 class options;
 class Tokenizer;
+enum class Certainty;
+enum class Severity;
 
 class TestFixture : public ErrorLogger {
 private:
@@ -200,7 +201,7 @@ protected:
 
         SettingsBuilder& libraryxml(const char xmldata[], std::size_t len);
 
-        SettingsBuilder& platform(cppcheck::Platform::Type type);
+        SettingsBuilder& platform(Platform::Type type);
 
         SettingsBuilder& checkConfiguration() {
             if (REDUNDANT_CHECK && settings.checkConfiguration)
@@ -274,6 +275,6 @@ extern std::ostringstream output;
 #define LOAD_LIB_2_EXE( LIB, NAME, EXE ) do { if (((LIB).load((EXE), NAME).errorcode != Library::ErrorCode::OK)) throw std::runtime_error("library '" + std::string(NAME) + "' not found"); } while (false)
 #define LOAD_LIB_2( LIB, NAME ) LOAD_LIB_2_EXE(LIB, NAME, exename.c_str())
 
-#define PLATFORM( P, T ) do { std::string errstr; assertEquals(__FILE__, __LINE__, true, P.set(cppcheck::Platform::toString(T), errstr, {exename}), errstr); } while (false)
+#define PLATFORM( P, T ) do { std::string errstr; assertEquals(__FILE__, __LINE__, true, P.set(Platform::toString(T), errstr, {exename}), errstr); } while (false)
 
 #endif // fixtureH

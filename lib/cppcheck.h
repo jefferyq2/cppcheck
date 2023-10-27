@@ -34,7 +34,9 @@
 #include <functional>
 #include <list>
 #include <map>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 class Tokenizer;
@@ -222,6 +224,9 @@ private:
 
     /** @brief Current preprocessor configuration */
     std::string mCurrentConfig;
+
+    using Location = std::pair<std::string, int>;
+    std::map<Location, std::set<std::string>> mLocationMacros; // What macros are used on a location?
 
     unsigned int mExitCode{};
 

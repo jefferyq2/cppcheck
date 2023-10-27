@@ -222,13 +222,15 @@ private:
         TEST_CASE(simplifyTypedefFunction9);
         TEST_CASE(simplifyTypedefFunction10); // #5191
 
+        TEST_CASE(simplifyTypedefStruct); // #12081 - volatile struct
+
         TEST_CASE(simplifyTypedefShadow);  // #4445 - shadow variable
 
         TEST_CASE(simplifyTypedefMacro);
     }
 
 #define tok(...) tok_(__FILE__, __LINE__, __VA_ARGS__)
-    std::string tok_(const char* file, int line, const char code[], bool simplify = true, cppcheck::Platform::Type type = cppcheck::Platform::Type::Native, bool debugwarnings = true) {
+    std::string tok_(const char* file, int line, const char code[], bool simplify = true, Platform::Type type = Platform::Type::Native, bool debugwarnings = true) {
         errout.str("");
 
         // show warnings about unhandled typedef
@@ -788,7 +790,7 @@ private:
                             "};";
 
         // Tokenize and check output..
-        TODO_ASSERT_THROW(tok(code, true, cppcheck::Platform::Type::Native, false), InternalError); // TODO: Do not throw exception
+        TODO_ASSERT_THROW(tok(code, true, Platform::Type::Native, false), InternalError); // TODO: Do not throw exception
         //ASSERT_EQUALS("", errout.str());
     }
 
@@ -1876,7 +1878,7 @@ private:
 
         // The expected tokens..
         const char expected2[] = "void f ( ) { char a [ 256 ] = { 0 } ; char b [ 256 ] = { 0 } ; }";
-        ASSERT_EQUALS(expected2, tok(code2, false, cppcheck::Platform::Type::Native, false));
+        ASSERT_EQUALS(expected2, tok(code2, false, Platform::Type::Native, false));
         ASSERT_EQUALS("", errout.str());
 
         const char code3[] = "typedef char TString[256];\n"
@@ -1887,7 +1889,7 @@ private:
 
         // The expected tokens..
         const char expected3[] = "void f ( ) { char a [ 256 ] ; a = \"\" ; char b [ 256 ] ; b = \"\" ; }";
-        ASSERT_EQUALS(expected3, tok(code3, false, cppcheck::Platform::Type::Native, false));
+        ASSERT_EQUALS(expected3, tok(code3, false, Platform::Type::Native, false));
         ASSERT_EQUALS("", errout.str());
 
         const char code4[] = "typedef char TString[256];\n"
@@ -1898,7 +1900,7 @@ private:
 
         // The expected tokens..
         const char expected4[] = "void f ( ) { char a [ 256 ] ; a = \"1234\" ; char b [ 256 ] ; b = \"5678\" ; }";
-        ASSERT_EQUALS(expected4, tok(code4, false, cppcheck::Platform::Type::Native, false));
+        ASSERT_EQUALS(expected4, tok(code4, false, Platform::Type::Native, false));
         ASSERT_EQUALS("", errout.str());
     }
 
@@ -1924,7 +1926,7 @@ private:
                             "    Foo b(0);\n"
                             "    return b > Foo(10);\n"
                             "}";
-        const std::string actual(tok(code, true, cppcheck::Platform::Type::Native, false));
+        const std::string actual(tok(code, true, Platform::Type::Native, false));
         ASSERT_EQUALS("int main ( ) { BAR < int > b ( 0 ) ; return b > BAR < int > ( 10 ) ; }", actual);
         ASSERT_EQUALS("", errout.str());
     }
@@ -1947,7 +1949,7 @@ private:
                                 "( ( int * * * ) global [ 6 ] ) ( \"assoc\" , \"eggdrop\" , 106 , 0 ) ; "
                                 "}";
         ASSERT_EQUALS(expected, tok(code));
-        ASSERT_EQUALS_WITHOUT_LINENUMBERS("[test.cpp:3]: (debug) valueflow.cpp:1319:valueFlowConditionExpressions bailout: Skipping function due to incomplete variable global\n", errout.str());
+        ASSERT_EQUALS("[test.cpp:3]: (debug) valueFlowConditionExpressions bailout: Skipping function due to incomplete variable global\n", errout.str());
     }
 
     void simplifyTypedef68() { // ticket #2355
@@ -2082,7 +2084,7 @@ private:
 
     void simplifyTypedef75() { // ticket #2426
         const char code[] = "typedef _Packed struct S { long l; };";
-        ASSERT_EQUALS(";", tok(code, true, cppcheck::Platform::Type::Native, false));
+        ASSERT_EQUALS(";", tok(code, true, Platform::Type::Native, false));
         ASSERT_EQUALS("", errout.str());
     }
 
@@ -2404,7 +2406,7 @@ private:
                                 "public: "
                                 "expression_error :: error_code ( * f ) ( void * , const char * , expression_space ) ; "
                                 "} ;";
-        ASSERT_EQUALS(expected, tok(code, true, cppcheck::Platform::Type::Native, false));
+        ASSERT_EQUALS(expected, tok(code, true, Platform::Type::Native, false));
         ASSERT_EQUALS("", errout.str());
     }
 
@@ -2568,7 +2570,7 @@ private:
                                 "} ; "
                                 "} "
                                 "}";
-        ASSERT_EQUALS(expected, tok(code, true, cppcheck::Platform::Type::Native, false));
+        ASSERT_EQUALS(expected, tok(code, true, Platform::Type::Native, false));
         ASSERT_EQUALS("", errout.str());
     }
 
@@ -3046,7 +3048,7 @@ private:
                                 "void A :: f ( external :: ns1 :: B<1> ) { } "
                                 "} "
                                 "struct external :: ns1 :: B<1> { } ;";
-            ASSERT_EQUALS(exp, tok(code, true, cppcheck::Platform::Type::Native, true));
+            ASSERT_EQUALS(exp, tok(code, true, Platform::Type::Native, true));
             ASSERT_EQUALS("", errout.str());
         }
         {
@@ -3079,7 +3081,7 @@ private:
                                 "void A :: f ( external :: ns1 :: B<1> ) { } "
                                 "} "
                                 "struct external :: ns1 :: B<1> { } ;";
-            ASSERT_EQUALS(exp, tok(code, true, cppcheck::Platform::Type::Native, true));
+            ASSERT_EQUALS(exp, tok(code, true, Platform::Type::Native, true));
             ASSERT_EQUALS("", errout.str());
         }
         {
@@ -3129,7 +3131,7 @@ private:
                                 "void A :: f ( V ) { } "
                                 "} "
                                 "struct external :: ns1 :: B<1> { } ;";
-            TODO_ASSERT_EQUALS(exp, act, tok(code, true, cppcheck::Platform::Type::Native, true));
+            TODO_ASSERT_EQUALS(exp, act, tok(code, true, Platform::Type::Native, true));
             TODO_ASSERT_EQUALS("", "[test.cpp:14]: (debug) Executable scope 'f' with unknown function.\n", errout.str());
         }
         {
@@ -3178,7 +3180,7 @@ private:
                                 "namespace ns { "
                                 "void A :: f ( V ) { } "
                                 "}";
-            TODO_ASSERT_EQUALS(exp, act, tok(code, true, cppcheck::Platform::Type::Native, true));
+            TODO_ASSERT_EQUALS(exp, act, tok(code, true, Platform::Type::Native, true));
             ASSERT_EQUALS("", errout.str());
         }
         {
@@ -3208,7 +3210,7 @@ private:
                                 "void A :: f ( external :: B<1> ) { } "
                                 "} "
                                 "struct external :: B<1> { } ;";
-            ASSERT_EQUALS(exp, tok(code, true, cppcheck::Platform::Type::Native, true));
+            ASSERT_EQUALS(exp, tok(code, true, Platform::Type::Native, true));
             ASSERT_EQUALS("", errout.str());
         }
         {
@@ -3236,7 +3238,7 @@ private:
                                 "void A :: f ( B<1> ) { } "
                                 "} "
                                 "struct B<1> { } ;";
-            ASSERT_EQUALS(exp, tok(code, true, cppcheck::Platform::Type::Native, true));
+            ASSERT_EQUALS(exp, tok(code, true, Platform::Type::Native, true));
             ASSERT_EQUALS("", errout.str());
         }
     }
@@ -3393,6 +3395,18 @@ private:
                "void N::T::f(V*) {}\n"
                "namespace N {}\n";
         ASSERT_EQUALS("namespace N { struct S { } ; struct T { void f ( int * ) ; } ; } void N :: T :: f ( int * ) { }", tok(code));
+
+        code = "namespace N {\n" // #12008
+               "    typedef char U;\n"
+               "    typedef int V;\n"
+               "    struct S {\n"
+               "        S(V* v);\n"
+               "    };\n"
+               "}\n"
+               "void f() {}\n"
+               "N::S::S(V* v) {}\n"
+               "namespace N {}\n";
+        ASSERT_EQUALS("namespace N { struct S { S ( int * v ) ; } ; } void f ( ) { } N :: S :: S ( int * v ) { }", tok(code));
     }
 
     void simplifyTypedef147() {
@@ -3654,7 +3668,7 @@ private:
                                     "C ( * f5 ) ( ) ; "
                                     "C ( * f6 ) ( ) ; "
                                     "C ( * f7 ) ( ) ;";
-            ASSERT_EQUALS(expected, tok(code, true, cppcheck::Platform::Type::Native, false));
+            ASSERT_EQUALS(expected, tok(code, true, Platform::Type::Native, false));
             ASSERT_EQUALS("", errout.str());
         }
 
@@ -3683,7 +3697,7 @@ private:
                                     "const C ( * f5 ) ( ) ; "
                                     "const C ( * f6 ) ( ) ; "
                                     "const C ( * f7 ) ( ) ;";
-            ASSERT_EQUALS(expected, tok(code, true, cppcheck::Platform::Type::Native, false));
+            ASSERT_EQUALS(expected, tok(code, true, Platform::Type::Native, false));
             ASSERT_EQUALS("", errout.str());
         }
 
@@ -3711,7 +3725,7 @@ private:
                                     "const C ( * f5 ) ( ) ; "
                                     "const C ( * f6 ) ( ) ; "
                                     "const C ( * f7 ) ( ) ;";
-            ASSERT_EQUALS(expected, tok(code, true, cppcheck::Platform::Type::Native, false));
+            ASSERT_EQUALS(expected, tok(code, true, Platform::Type::Native, false));
             ASSERT_EQUALS("", errout.str());
         }
 
@@ -3739,7 +3753,7 @@ private:
                                     "C * ( * f5 ) ( ) ; "
                                     "C * ( * f6 ) ( ) ; "
                                     "C * ( * f7 ) ( ) ;";
-            ASSERT_EQUALS(expected, tok(code, true, cppcheck::Platform::Type::Native, false));
+            ASSERT_EQUALS(expected, tok(code, true, Platform::Type::Native, false));
             ASSERT_EQUALS("", errout.str());
         }
 
@@ -3767,7 +3781,7 @@ private:
                                     "const C * ( * f5 ) ( ) ; "
                                     "const C * ( * f6 ) ( ) ; "
                                     "const C * ( * f7 ) ( ) ;";
-            ASSERT_EQUALS(expected, tok(code, true, cppcheck::Platform::Type::Native, false));
+            ASSERT_EQUALS(expected, tok(code, true, Platform::Type::Native, false));
             ASSERT_EQUALS("", errout.str());
         }
 
@@ -3796,7 +3810,7 @@ private:
                                     "const C * ( * f5 ) ( ) ; "
                                     "const C * ( * f6 ) ( ) ; "
                                     "const C * ( * f7 ) ( ) ;";
-            ASSERT_EQUALS(expected, tok(code, true, cppcheck::Platform::Type::Native, false));
+            ASSERT_EQUALS(expected, tok(code, true, Platform::Type::Native, false));
             ASSERT_EQUALS("", errout.str());
         }
     }
@@ -3941,7 +3955,7 @@ private:
                                     "B :: C ( * f2 ) ( ) ; "
                                     "B :: C ( * f3 ) ( ) ; "
                                     "B :: C ( * f4 ) ( ) ;";
-            ASSERT_EQUALS(expected, tok(code, true, cppcheck::Platform::Type::Native, false));
+            ASSERT_EQUALS(expected, tok(code, true, Platform::Type::Native, false));
             ASSERT_EQUALS("", errout.str());
         }
 
@@ -3979,7 +3993,7 @@ private:
                                     "A :: B :: C ( * f2 ) ( ) ; "
                                     "A :: B :: C ( * f3 ) ( ) ; "
                                     "A :: B :: C ( * f4 ) ( ) ;";
-            ASSERT_EQUALS(expected, tok(code, true, cppcheck::Platform::Type::Native, false));
+            ASSERT_EQUALS(expected, tok(code, true, Platform::Type::Native, false));
             ASSERT_EQUALS("", errout.str());
         }
     }
@@ -4000,6 +4014,20 @@ private:
                       "Format_E1 ( * * t1 ) ( ) ; "
                       "MySpace :: Format_E2 ( * * t2 ) ( ) ;",
                       tok(code,false));
+    }
+
+    void simplifyTypedefStruct() {
+        const char code1[] = "typedef struct S { int x; } xyz;\n"
+                             "xyz var;";
+        ASSERT_EQUALS("struct S { int x ; } ; struct S var ;", tok(code1,false));
+
+        const char code2[] = "typedef const struct S { int x; } xyz;\n"
+                             "xyz var;";
+        ASSERT_EQUALS("struct S { int x ; } ; const struct S var ;", tok(code2,false));
+
+        const char code3[] = "typedef volatile struct S { int x; } xyz;\n"
+                             "xyz var;";
+        ASSERT_EQUALS("struct S { int x ; } ; volatile struct S var ;", tok(code3,false));
     }
 
     void simplifyTypedefShadow() { // shadow variable (#4445)
