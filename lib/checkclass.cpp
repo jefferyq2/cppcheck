@@ -33,7 +33,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstddef>
 #include <cstring>
 #include <iterator>
 #include <utility>
@@ -660,12 +659,11 @@ std::vector<CheckClass::Usage> CheckClass::createUsageList(const Scope *scope)
 
 void CheckClass::assignVar(std::vector<Usage> &usageList, nonneg int varid)
 {
-    for (Usage& usage: usageList) {
-        if (usage.var->declarationId() == varid) {
-            usage.assign = true;
-            return;
-        }
-    }
+    auto it = std::find_if(usageList.begin(), usageList.end(), [varid](const Usage& usage) {
+        return usage.var->declarationId() == varid;
+    });
+    if (it != usageList.end())
+        it->assign = true;
 }
 
 void CheckClass::assignVar(std::vector<Usage> &usageList, const Token* vartok)
@@ -674,23 +672,21 @@ void CheckClass::assignVar(std::vector<Usage> &usageList, const Token* vartok)
         assignVar(usageList, vartok->varId());
         return;
     }
-    for (Usage& usage: usageList) {
+    auto it = std::find_if(usageList.begin(), usageList.end(), [vartok](const Usage& usage) {
         // FIXME: This is a workaround when varid is not set for a derived member
-        if (usage.var->name() == vartok->str()) {
-            usage.assign = true;
-            return;
-        }
-    }
+        return usage.var->name() == vartok->str();
+    });
+    if (it != usageList.end())
+        it->assign = true;
 }
 
 void CheckClass::initVar(std::vector<Usage> &usageList, nonneg int varid)
 {
-    for (Usage& usage: usageList) {
-        if (usage.var->declarationId() == varid) {
-            usage.init = true;
-            return;
-        }
-    }
+    auto it = std::find_if(usageList.begin(), usageList.end(), [varid](const Usage& usage) {
+        return usage.var->declarationId() == varid;
+    });
+    if (it != usageList.end())
+        it->init = true;
 }
 
 void CheckClass::assignAllVar(std::vector<Usage> &usageList)
@@ -764,7 +760,14 @@ void CheckClass::initializeVarList(const Function &func, std::list<const Functio
         if (initList) {
             if (level == 0 && Token::Match(ftok, "%name% {|(") && Token::Match(ftok->linkAt(1), "}|) ,|{")) {
                 if (ftok->str() != func.name()) {
-                    initVar(usage, ftok->varId());
+                    if (ftok->varId())
+                        initVar(usage, ftok->varId());
+                    else { // base class constructor
+                        for (Usage& u : usage) {
+                            if (u.var->scope() != scope) // assume that all variables are initialized in base class
+                                u.init = true;
+                        }
+                    }
                 } else { // c++11 delegate constructor
                     const Function *member = ftok->function();
                     // member function not found => assume it initializes all members
@@ -1057,6 +1060,11 @@ void CheckClass::initializeVarList(const Function &func, std::list<const Functio
             assignVar(usage, ftok->next()->varId());
         } else if (Token::Match(ftok, "* this . %name% =")) {
             assignVar(usage, ftok->tokAt(3)->varId());
+        } else if (astIsRangeBasedForDecl(ftok)) {
+            if (const Variable* rangeVar = ftok->astParent()->astOperand1()->variable()) {
+                if (rangeVar->isReference() && !rangeVar->isConst())
+                    assignVar(usage, ftok->varId());
+            }
         }
 
         // The functions 'clear' and 'Clear' are supposed to initialize variable.
@@ -1111,8 +1119,7 @@ void CheckClass::missingMemberCopyError(const Token *tok, Function::Type functio
     const std::string message =
         "$symbol:" + classname + "::" + varname + "\n" +
         "Member variable '$symbol' is not assigned in the " + ctor + " constructor. Should it be " + action;
-    const char id[] = "missingMemberCopy";
-    reportError(tok, Severity::warning, id, message, CWE398, Certainty::inconclusive);
+    reportError(tok, Severity::warning, "missingMemberCopy", message, CWE398, Certainty::inconclusive);
 }
 
 void CheckClass::operatorEqVarError(const Token *tok, const std::string &classname, const std::string &varname, bool inconclusive)

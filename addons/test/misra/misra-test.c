@@ -578,13 +578,13 @@ static void misra_9_struct_initializers(void) {
     // Struct with fields of unknown type
     struct_with_unknown_fields ufa       = { 1, { 1, 2 }, { 1, 2 } };
     struct_with_unknown_fields ufb       = { 1, 1, 2 };                     // 9.2
-    struct_with_unknown_fields[2] ufc    = { {1, { 1, 2 }, { 1, 2 } },
+    struct_with_unknown_fields ufc[2]    = { {1, { 1, 2 }, { 1, 2 } },
                                              { 2, { 1, 2 }, { 1, 2 } } };
-    struct_with_unknown_fields[2][2] ufd = { {1, { 1, 2 }, { 1, 2 } },
+    struct_with_unknown_fields ufd[2][2] = { {1, { 1, 2 }, { 1, 2 } },      // 9.2 9.3
                                              { 2, { 1, 2 }, { 1, 2 } } };
-    struct_with_unknown_fields[2] ufe    = { 1, { 1, 2 }, { 1, 2 },         // TODO: 9.2
+    struct_with_unknown_fields ufe[2]    = { 1, { 1, 2 }, { 1, 2 },         // 9.2 9.3
                                              2, { 1, 2 }, { 1, 2 } };
-    struct_with_unknown_fields[3] uff    = { { 1, { 1, 2 }, { 1, 2 }},      // TODO: 9.3 9.4
+    struct_with_unknown_fields uff[3]    = { { 1, { 1, 2 }, { 1, 2 }},      // 9.3 9.4
                                              {2, { 1, 2 }, { 1, 2 }},
                                              [1] = { 2, { 1, 2 }, { 1, 2 }} };
 
@@ -749,7 +749,7 @@ static void misra_10_6(u8 x, char c1, char c2) {
   u16 y1 = x+x; // 10.6
   u16 y2 = (0x100u - 0x80u); // rhs is not a composite expression because it's a constant expression
   u16 z = ~u8 x ;//10.6
-  s32 i = c1 - c2; // 10.3 FIXME: False positive for 10.6 (this is compliant). Trac #9488
+  s32 i = c1 - c2; // 10.3
   struct misra_10_6_s s;
   s.a = x & 1U; // no-warning (#10487)
 }
@@ -1783,6 +1783,8 @@ static void misra_18_8(int x) {
   int buf1[10];
   int buf2[sizeof(int)];
   int vla[x]; // 18.8
+  // #9498
+  int vlb[y]; // config
   static const unsigned char arr18_8_1[] = UNDEFINED_ID;
   static uint32_t enum_test_0[R18_8_ENUM_CONSTANT_0] = {0};
 }

@@ -24,7 +24,7 @@
 #include "cppcheck.h"
 #include "errorlogger.h"
 #include "errortypes.h"
-#include "importproject.h"
+#include "filesettings.h"
 #include "settings.h"
 #include "suppressions.h"
 #include "timer.h"
@@ -38,6 +38,7 @@
 #include <cstring>
 #include <iostream>
 #include <list>
+#include <map>
 #include <sstream> // IWYU pragma: keep
 #include <sys/select.h>
 #include <sys/wait.h>
@@ -60,8 +61,8 @@ enum class Color;
 using std::memset;
 
 
-ProcessExecutor::ProcessExecutor(const std::map<std::string, std::size_t> &files, const Settings &settings, Suppressions &suppressions, ErrorLogger &errorLogger, CppCheck::ExecuteCmdFn executeCommand)
-    : Executor(files, settings, suppressions, errorLogger)
+ProcessExecutor::ProcessExecutor(const std::list<std::pair<std::string, std::size_t>> &files, const std::list<FileSettings>& fileSettings, const Settings &settings, Suppressions &suppressions, ErrorLogger &errorLogger, CppCheck::ExecuteCmdFn executeCommand)
+    : Executor(files, fileSettings, settings, suppressions, errorLogger)
     , mExecuteCommand(std::move(executeCommand))
 {
     assert(mSettings.jobs > 1);
@@ -236,12 +237,12 @@ unsigned int ProcessExecutor::check()
     std::map<pid_t, std::string> childFile;
     std::map<int, std::string> pipeFile;
     std::size_t processedsize = 0;
-    std::map<std::string, std::size_t>::const_iterator iFile = mFiles.cbegin();
-    std::list<ImportProject::FileSettings>::const_iterator iFileSettings = mSettings.project.fileSettings.cbegin();
+    std::list<std::pair<std::string, std::size_t>>::const_iterator iFile = mFiles.cbegin();
+    std::list<FileSettings>::const_iterator iFileSettings = mFileSettings.cbegin();
     for (;;) {
         // Start a new child
         const size_t nchildren = childFile.size();
-        if ((iFile != mFiles.cend() || iFileSettings != mSettings.project.fileSettings.cend()) && nchildren < mSettings.jobs && checkLoadAverage(nchildren)) {
+        if ((iFile != mFiles.cend() || iFileSettings != mFileSettings.cend()) && nchildren < mSettings.jobs && checkLoadAverage(nchildren)) {
             int pipes[2];
             if (pipe(pipes) == -1) {
                 std::cerr << "#### ThreadExecutor::check, pipe() failed: "<< std::strerror(errno) << std::endl;
@@ -275,7 +276,7 @@ unsigned int ProcessExecutor::check()
                 fileChecker.settings() = mSettings;
                 unsigned int resultOfCheck = 0;
 
-                if (iFileSettings != mSettings.project.fileSettings.end()) {
+                if (iFileSettings != mFileSettings.end()) {
                     resultOfCheck = fileChecker.check(*iFileSettings);
                     if (fileChecker.settings().clangTidy)
                         fileChecker.analyseClangTidy(*iFileSettings);
@@ -291,7 +292,7 @@ unsigned int ProcessExecutor::check()
 
             close(pipes[1]);
             rpipes.push_back(pipes[0]);
-            if (iFileSettings != mSettings.project.fileSettings.end()) {
+            if (iFileSettings != mFileSettings.end()) {
                 childFile[pid] = iFileSettings->filename + ' ' + iFileSettings->cfg;
                 pipeFile[pipes[0]] = iFileSettings->filename + ' ' + iFileSettings->cfg;
                 ++iFileSettings;
@@ -325,7 +326,9 @@ unsigned int ProcessExecutor::check()
                             std::size_t size = 0;
                             if (p != pipeFile.end()) {
                                 pipeFile.erase(p);
-                                const std::map<std::string, std::size_t>::const_iterator fs = mFiles.find(name);
+                                const auto fs = std::find_if(mFiles.cbegin(), mFiles.cend(), [&name](const std::pair<std::string, std::size_t>& entry) {
+                                    return entry.first == name;
+                                });
                                 if (fs != mFiles.end()) {
                                     size = fs->second;
                                 }
@@ -334,7 +337,7 @@ unsigned int ProcessExecutor::check()
                             fileCount++;
                             processedsize += size;
                             if (!mSettings.quiet)
-                                Executor::reportStatus(fileCount, mFiles.size() + mSettings.project.fileSettings.size(), processedsize, totalfilesize);
+                                Executor::reportStatus(fileCount, mFiles.size() + mFileSettings.size(), processedsize, totalfilesize);
 
                             close(*rp);
                             rp = rpipes.erase(rp);
@@ -370,7 +373,7 @@ unsigned int ProcessExecutor::check()
                 }
             }
         }
-        if (iFile == mFiles.end() && iFileSettings == mSettings.project.fileSettings.end() && rpipes.empty() && childFile.empty()) {
+        if (iFile == mFiles.end() && iFileSettings == mFileSettings.end() && rpipes.empty() && childFile.empty()) {
             // All done
             break;
         }

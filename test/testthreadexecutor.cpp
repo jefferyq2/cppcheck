@@ -18,9 +18,9 @@
 
 #include "redirect.h"
 #include "settings.h"
+#include "filesettings.h"
 #include "fixture.h"
 #include "helpers.h"
-#include "importproject.h"
 #include "library.h"
 #include "threadexecutor.h"
 #include "timer.h"
@@ -72,32 +72,33 @@ private:
         errout.str("");
         output.str("");
 
-        Settings s = settings;
+        std::list<FileSettings> fileSettings;
 
-        std::map<std::string, std::size_t> filemap;
+        std::list<std::pair<std::string, std::size_t>> filelist;
         if (opt.filesList.empty()) {
             for (int i = 1; i <= files; ++i) {
                 std::string f_s = fprefix() + "_" + std::to_string(i) + ".cpp";
-                filemap[f_s] = data.size();
+                filelist.emplace_back(f_s, data.size());
                 if (useFS) {
-                    ImportProject::FileSettings fs;
+                    FileSettings fs;
                     fs.filename = std::move(f_s);
-                    s.project.fileSettings.emplace_back(std::move(fs));
+                    fileSettings.emplace_back(std::move(fs));
                 }
             }
         }
         else {
             for (const auto& f : opt.filesList)
             {
-                filemap[f] = data.size();
+                filelist.emplace_back(f, data.size());
                 if (useFS) {
-                    ImportProject::FileSettings fs;
+                    FileSettings fs;
                     fs.filename = f;
-                    s.project.fileSettings.emplace_back(std::move(fs));
+                    fileSettings.emplace_back(std::move(fs));
                 }
             }
         }
 
+        Settings s = settings;
         s.jobs = jobs;
         s.showtime = opt.showtime;
         s.quiet = opt.quiet;
@@ -117,15 +118,15 @@ private:
         };
 
         std::vector<std::unique_ptr<ScopedFile>> scopedfiles;
-        scopedfiles.reserve(filemap.size());
-        for (std::map<std::string, std::size_t>::const_iterator i = filemap.cbegin(); i != filemap.cend(); ++i)
+        scopedfiles.reserve(filelist.size());
+        for (std::list<std::pair<std::string, std::size_t>>::const_iterator i = filelist.cbegin(); i != filelist.cend(); ++i)
             scopedfiles.emplace_back(new ScopedFile(i->first, data));
 
         // clear files list so only fileSettings are used
         if (useFS)
-            filemap.clear();
+            filelist.clear();
 
-        ThreadExecutor executor(filemap, s, s.nomsg, *this, executeFn);
+        ThreadExecutor executor(filelist, fileSettings, s, s.nomsg, *this, executeFn);
         ASSERT_EQUALS(result, executor.check());
         ASSERT_EQUALS(opt.executeCommandCalled, executeCommandCalled);
         ASSERT_EQUALS(opt.exe, exe);
@@ -288,9 +289,9 @@ private:
             return;
 
 #ifdef _WIN32
-        const char exe[] = "clang-tidy.exe";
+        constexpr char exe[] = "clang-tidy.exe";
 #else
-        const char exe[] = "clang-tidy";
+        constexpr char exe[] = "clang-tidy";
 #endif
 
         const std::string file = fprefix() + "_1.cpp";

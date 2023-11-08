@@ -897,6 +897,14 @@ def isConstantExpression(expr):
         return False
     return True
 
+def isUnknownConstantExpression(expr):
+    if expr.isName and not isEnumConstant(expr) and expr.variable is None:
+        return True
+    if expr.astOperand1 and isUnknownConstantExpression(expr.astOperand1):
+        return True
+    if expr.astOperand2 and isUnknownConstantExpression(expr.astOperand2):
+        return True
+    return False
 
 def isUnsignedInt(expr):
     return expr and expr.valueType and expr.valueType.type in ('short', 'int') and expr.valueType.sign == 'unsigned'
@@ -2379,6 +2387,9 @@ class MisraChecker:
                     e = getEssentialType(token.astOperand2)
                 if not e:
                     continue
+                if e == "char" and vt1.type == "int":
+                    # When arithmetic operations are performed on char values, they are usually promoted to int
+                    continue
                 lhsbits = vt1.bits if vt1.bits else bitsOfEssentialType(vt1.type)
                 if lhsbits > bitsOfEssentialType(e):
                     self.reportError(token, 10, 6)
@@ -3258,24 +3269,53 @@ class MisraChecker:
                 tok = tok.next
 
     def misra_config(self, data):
-        for token in data.tokenlist:
-            if token.str not in ["while", "if"]:
+        for var in data.variables:
+            if not var.isArray or var.nameToken is None or not cppcheckdata.simpleMatch(var.nameToken.next, '['):
                 continue
-            if token.next.str != "(":
+            tok = var.nameToken.next
+            while tok.str == '[':
+                sz = tok.astOperand2
+                if sz and sz.getKnownIntValue() is None:
+                    has_var = False
+                    unknown_constant = False
+                    tokens = [sz]
+                    while len(tokens) > 0:
+                        t = tokens[-1]
+                        tokens = tokens[:-1]
+                        if t:
+                            if t.isName and t.getKnownIntValue() is None:
+                                if t.varId or t.variable:
+                                    has_var = True
+                                    continue
+                                unknown_constant = True
+                                self.report_config_error(tok, 'Unknown constant {}, please review configuration'.format(t.str))
+                            if t.isArithmeticalOp:
+                                tokens += [t.astOperand1, t.astOperand2]
+                    if not unknown_constant and not has_var:
+                        self.report_config_error(tok, 'Unknown array size, please review configuration')
+                tok = tok.link.next
+
+        for token in data.tokenlist:
+            if token.str not in ("while", "if"):
                 continue
             tok = token.next
-            while tok != token.next.link:
+            if token is None or tok.str != "(":
+                continue
+            end_token = tok.link
+            while tok != end_token:
+                tok = tok.next
                 if tok.str == "(" and tok.isCast:
                     tok = tok.link
                     continue
-                if not tok.isName or tok.function or tok.variable or tok.varId or tok.valueType \
-                        or tok.next.str == "(" or tok.str in ["EOF"] \
-                        or isKeyword(tok.str) or isStdLibId(tok.str):
-                    tok = tok.next
+                if not tok.isName:
                     continue
-                errmsg = tok.str + " Variable is unknown"
-                self.reportError(token, 0, 0, "config")
-                break
+                if tok.function or tok.variable or tok.varId or tok.valueType:
+                    continue
+                if tok.next.str == "(" or tok.str in ["EOF"]:
+                    continue
+                if isKeyword(tok.str) or isStdLibId(tok.str):
+                    continue
+                self.report_config_error(tok, "Variable '%s' is unknown" % tok.str)
 
     def misra_17_6(self, rawTokens):
         for token in rawTokens:
@@ -3364,7 +3404,7 @@ class MisraChecker:
             # Unknown define or syntax error
             if not typetok.astOperand2:
                 continue
-            if not isConstantExpression(typetok.astOperand2):
+            if not isConstantExpression(typetok.astOperand2) and not isUnknownConstantExpression(typetok.astOperand2):
                 self.reportError(var.nameToken, 18, 8)
 
     def misra_19_2(self, data):
@@ -4184,30 +4224,29 @@ class MisraChecker:
 
                 self.addSuppressedRule(ruleNum)
 
-    def reportError(self, location, num1, num2, other_id = None):
-        if not other_id:
-            ruleNum = num1 * 100 + num2
+    def report_config_error(self, location, errmsg):
+        cppcheck_severity = 'error'
+        error_id = 'config'
+        if self.settings.verify:
+            self.verify_actual.append('%s:%d %s' % (location.file, location.linenr, error_id))
         else:
-            ruleNum = other_id
+            cppcheckdata.reportError(location, cppcheck_severity, errmsg, 'misra', error_id)
+
+    def reportError(self, location, num1, num2):
+        ruleNum = num1 * 100 + num2
 
         if self.isRuleGloballySuppressed(ruleNum):
             return
 
         if self.settings.verify:
-            if not other_id:
-                self.verify_actual.append('%s:%d %d.%d' % (location.file, location.linenr, num1, num2))
-            else:
-                self.verify_actual.append('%s:%d %s' % (location.file, location.linenr, other_id))
+            self.verify_actual.append('%s:%d %d.%d' % (location.file, location.linenr, num1, num2))
         elif self.isRuleSuppressed(location.file, location.linenr, ruleNum):
             # Error is suppressed. Ignore
             self.suppressionStats.setdefault(ruleNum, 0)
             self.suppressionStats[ruleNum] += 1
             return
         else:
-            if not other_id:
-                errorId = 'c2012-' + str(num1) + '.' + str(num2)
-            else:
-                errorId = 'c2012-' + other_id
+            errorId = 'c2012-' + str(num1) + '.' + str(num2)
             misra_severity = 'Undefined'
             cppcheck_severity = 'style'
             if ruleNum in self.ruleTexts:
@@ -4594,6 +4633,9 @@ class MisraChecker:
         def is_different_location(loc1, loc2):
             return loc1['file'] != loc2['file'] or loc1['line'] != loc2['line']
 
+        def is_different_file(loc1, loc2):
+            return loc1['file'] != loc2['file']
+
         try:
             for filename in ctu_info_files:
                 for line in open(filename, 'rt'):
@@ -4640,7 +4682,7 @@ class MisraChecker:
                                 all_macro_info[key] = new_macro
 
                     if summary_type == 'MisraExternalIdentifiers':
-                        for s in summary_data:
+                        for s in sorted(summary_data, key=lambda d: "%s %s %s" %(d['file'],d['line'], d['column'] )):
                             is_declaration = s['decl']
                             if is_declaration:
                                 all_external_identifiers = all_external_identifiers_decl
@@ -4648,10 +4690,13 @@ class MisraChecker:
                                 all_external_identifiers = all_external_identifiers_def
 
                             name = s['name']
-                            if name in all_external_identifiers and is_different_location(s, all_external_identifiers[name]):
-                                num = 5 if is_declaration else 6
-                                self.reportError(Location(s), 8, num)
-                                self.reportError(Location(all_external_identifiers[name]), 8, num)
+                            if name in all_external_identifiers:
+                                if is_declaration and is_different_location(s, all_external_identifiers[name]):
+                                    self.reportError(Location(s), 8, 5)
+                                    self.reportError(Location(all_external_identifiers[name]), 8, 5)
+                                elif is_different_file(s, all_external_identifiers[name]):
+                                    self.reportError(Location(s), 8, 6)
+                                    self.reportError(Location(all_external_identifiers[name]), 8, 6)
                             all_external_identifiers[name] = s
 
                     if summary_type == 'MisraInternalIdentifiers':

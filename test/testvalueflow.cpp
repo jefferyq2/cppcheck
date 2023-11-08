@@ -46,11 +46,11 @@ private:
 
     void run() override {
         // strcpy, abort cfg
-        const char cfg[] = "<?xml version=\"1.0\"?>\n"
-                           "<def>\n"
-                           "  <function name=\"strcpy\"> <arg nr=\"1\"><not-null/></arg> </function>\n"
-                           "  <function name=\"abort\"> <noreturn>true</noreturn> </function>\n" // abort is a noreturn function
-                           "</def>";
+        constexpr char cfg[] = "<?xml version=\"1.0\"?>\n"
+                               "<def>\n"
+                               "  <function name=\"strcpy\"> <arg nr=\"1\"><not-null/></arg> </function>\n"
+                               "  <function name=\"abort\"> <noreturn>true</noreturn> </function>\n" // abort is a noreturn function
+                               "</def>";
         settings = settingsBuilder(settings).libraryxml(cfg, sizeof(cfg)).build();
 
         TEST_CASE(valueFlowNumber);
@@ -8174,6 +8174,18 @@ private:
                "    }\n"
                "}\n";
         ASSERT_EQUALS(true, testValueOfXImpossible(code, 4U, -1));
+
+        code = "void f(int N, int z) {\n"
+               "  std::vector<int> a(N);\n"
+               "  int m = -1;\n"
+               "  m = 0;\n"
+               "  for (int k = 0; k < N; k++) {\n"
+               "    int x = m + k;\n"
+               "    if (z == a[x]) {}\n"
+               "  }\n"
+               "}\n";
+        ASSERT_EQUALS(true, testValueOfXImpossible(code, 7U, -1));
+        ASSERT_EQUALS(false, testValueOfXKnown(code, 7U, -1));
     }
 
     void valueFlowImpossibleUnknownConstant()
