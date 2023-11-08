@@ -28,7 +28,7 @@
 #include "cppcheck.h"
 #include "errortypes.h"
 #include "filelister.h"
-#include "importproject.h"
+#include "filesettings.h"
 #include "library.h"
 #include "path.h"
 #include "pathmatch.h"
@@ -187,57 +187,65 @@ bool CppCheckExecutor::parseFromArgs(Settings &settings, int argc, const char* c
     }
 
     const std::vector<std::string>& pathnames = parser.getPathNames();
+    const std::list<FileSettings>& fileSettings = parser.getFileSettings();
 
-#if defined(_WIN32)
-    // For Windows we want case-insensitive path matching
-    const bool caseSensitive = false;
-#else
-    const bool caseSensitive = true;
-#endif
-    if (!settings.project.fileSettings.empty() && !settings.fileFilters.empty()) {
-        // filter only for the selected filenames from all project files
-        std::list<ImportProject::FileSettings> newList;
+    // the inputs can only be used exclusively - CmdLineParser should already handle this
+    assert(!(!pathnames.empty() && !fileSettings.empty()));
 
-        const std::list<ImportProject::FileSettings>& fileSettings = settings.project.fileSettings;
-        std::copy_if(fileSettings.cbegin(), fileSettings.cend(), std::back_inserter(newList), [&](const ImportProject::FileSettings& fs) {
-            return matchglobs(settings.fileFilters, fs.filename);
-        });
-        if (!newList.empty())
-            settings.project.fileSettings = newList;
-        else {
-            logger.printError("could not find any files matching the filter.");
-            return false;
+    if (!fileSettings.empty()) {
+        if (!settings.fileFilters.empty()) {
+            // filter only for the selected filenames from all project files
+            std::copy_if(fileSettings.cbegin(), fileSettings.cend(), std::back_inserter(mFileSettings), [&](const FileSettings &fs) {
+                return matchglobs(settings.fileFilters, fs.filename);
+            });
+            if (mFileSettings.empty()) {
+                logger.printError("could not find any files matching the filter.");
+                return false;
+            }
         }
-    } else if (!pathnames.empty()) {
+        else {
+            mFileSettings = fileSettings;
+        }
+    }
+
+    if (!pathnames.empty()) {
+        std::list<std::pair<std::string, std::size_t>> files;
+        // TODO: this needs to be inlined into PathMatch as it depends on the underlying filesystem
+#if defined(_WIN32)
+        // For Windows we want case-insensitive path matching
+        const bool caseSensitive = false;
+#else
+        const bool caseSensitive = true;
+#endif
         // Execute recursiveAddFiles() to each given file parameter
         const PathMatch matcher(ignored, caseSensitive);
         for (const std::string &pathname : pathnames) {
-            std::string err = FileLister::recursiveAddFiles(mFiles, Path::toNativeSeparators(pathname), settings.library.markupExtensions(), matcher);
+            const std::string err = FileLister::recursiveAddFiles(files, Path::toNativeSeparators(pathname), settings.library.markupExtensions(), matcher);
             if (!err.empty()) {
                 // TODO: bail out?
                 logger.printMessage(err);
             }
         }
+
+        if (!settings.fileFilters.empty()) {
+            std::copy_if(files.cbegin(), files.cend(), std::inserter(mFiles, mFiles.end()), [&](const decltype(files)::value_type& entry) {
+                return matchglobs(settings.fileFilters, entry.first);
+            });
+            if (mFiles.empty()) {
+                logger.printError("could not find any files matching the filter.");
+                return false;
+            }
+        }
+        else {
+            mFiles = files;
+        }
     }
 
-    if (mFiles.empty() && settings.project.fileSettings.empty()) {
+    if (mFiles.empty() && mFileSettings.empty()) {
         logger.printError("could not find or open any of the paths given.");
         if (!ignored.empty())
             logger.printMessage("Maybe all paths were ignored?");
         return false;
-    }
-    if (!settings.fileFilters.empty() && settings.project.fileSettings.empty()) {
-        std::map<std::string, std::size_t> newMap;
-        for (std::map<std::string, std::size_t>::const_iterator i = mFiles.cbegin(); i != mFiles.cend(); ++i)
-            if (matchglobs(settings.fileFilters, i->first)) {
-                newMap[i->first] = i->second;
-            }
-        mFiles = newMap;
-        if (mFiles.empty()) {
-            logger.printError("could not find any files matching the filter.");
-            return false;
-        }
-
     }
 
     return true;
@@ -277,7 +285,7 @@ int CppCheckExecutor::check_wrapper(CppCheck& cppcheck)
     return check_internal(cppcheck);
 }
 
-bool CppCheckExecutor::reportSuppressions(const Settings &settings, bool unusedFunctionCheckEnabled, const std::map<std::string, std::size_t> &files, ErrorLogger& errorLogger) {
+bool CppCheckExecutor::reportSuppressions(const Settings &settings, bool unusedFunctionCheckEnabled, const std::list<std::pair<std::string, std::size_t>> &files, ErrorLogger& errorLogger) {
     const auto& suppressions = settings.nomsg.getSuppressions();
     if (std::any_of(suppressions.begin(), suppressions.end(), [](const Suppressions::Suppression& s) {
         return s.errorId == "unmatchedSuppression" && s.fileName.empty() && s.lineNumber == Suppressions::Suppression::NO_LINE;
@@ -286,7 +294,7 @@ bool CppCheckExecutor::reportSuppressions(const Settings &settings, bool unusedF
 
     bool err = false;
     if (settings.useSingleJob()) {
-        for (std::map<std::string, std::size_t>::const_iterator i = files.cbegin(); i != files.cend(); ++i) {
+        for (std::list<std::pair<std::string, std::size_t>>::const_iterator i = files.cbegin(); i != files.cend(); ++i) {
             err |= Suppressions::reportUnmatchedSuppressions(
                 settings.nomsg.getUnmatchedLocalSuppressions(i->first, unusedFunctionCheckEnabled), errorLogger);
         }
@@ -317,9 +325,9 @@ int CppCheckExecutor::check_internal(CppCheck& cppcheck)
         settings.loadSummaries();
 
         std::list<std::string> fileNames;
-        for (std::map<std::string, std::size_t>::const_iterator i = mFiles.cbegin(); i != mFiles.cend(); ++i)
+        for (std::list<std::pair<std::string, std::size_t>>::const_iterator i = mFiles.cbegin(); i != mFiles.cend(); ++i)
             fileNames.emplace_back(i->first);
-        AnalyzerInformation::writeFilesTxt(settings.buildDir, fileNames, settings.userDefines, settings.project.fileSettings);
+        AnalyzerInformation::writeFilesTxt(settings.buildDir, fileNames, settings.userDefines, mFileSettings);
     }
 
     if (!settings.checkersReportFilename.empty())
@@ -328,18 +336,18 @@ int CppCheckExecutor::check_internal(CppCheck& cppcheck)
     unsigned int returnValue = 0;
     if (settings.useSingleJob()) {
         // Single process
-        SingleExecutor executor(cppcheck, mFiles, settings, settings.nomsg, *this);
+        SingleExecutor executor(cppcheck, mFiles, mFileSettings, settings, settings.nomsg, *this);
         returnValue = executor.check();
     } else {
 #if defined(THREADING_MODEL_THREAD)
-        ThreadExecutor executor(mFiles, settings, settings.nomsg, *this, CppCheckExecutor::executeCommand);
+        ThreadExecutor executor(mFiles, mFileSettings, settings, settings.nomsg, *this, CppCheckExecutor::executeCommand);
 #elif defined(THREADING_MODEL_FORK)
-        ProcessExecutor executor(mFiles, settings, settings.nomsg, *this, CppCheckExecutor::executeCommand);
+        ProcessExecutor executor(mFiles, mFileSettings, settings, settings.nomsg, *this, CppCheckExecutor::executeCommand);
 #endif
         returnValue = executor.check();
     }
 
-    cppcheck.analyseWholeProgram(settings.buildDir, mFiles);
+    cppcheck.analyseWholeProgram(settings.buildDir, mFiles, mFileSettings);
 
     if (settings.severity.isEnabled(Severity::information) || settings.checkConfiguration) {
         const bool err = reportSuppressions(settings, cppcheck.isUnusedFunctionCheckEnabled(), mFiles, *this);
@@ -580,7 +588,7 @@ bool CppCheckExecutor::tryLoadLibrary(Library& destination, const std::string& b
 /**
  * Execute a shell command and read the output from it. Returns true if command terminated successfully.
  */
-// cppcheck-suppress passedByValue - used as callback so we need to preserve the signature
+// cppcheck-suppress passedByValueCallback - used as callback so we need to preserve the signature
 // NOLINTNEXTLINE(performance-unnecessary-value-param) - used as callback so we need to preserve the signature
 int CppCheckExecutor::executeCommand(std::string exe, std::vector<std::string> args, std::string redirect, std::string &output_)
 {

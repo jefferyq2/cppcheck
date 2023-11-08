@@ -272,6 +272,7 @@ private:
         TEST_CASE(cpp14template); // Ticket #6708
 
         TEST_CASE(arraySize);
+        TEST_CASE(arraySizeAfterValueFlow);
 
         TEST_CASE(labels);
         TEST_CASE(simplifyInitVar);
@@ -4156,6 +4157,11 @@ private:
         ASSERT_EQUALS("; const char c [ 4 ] = \"abc\" ;", tokenizeAndStringify(";const char c[] = { \"abc\" };"));
     }
 
+    void arraySizeAfterValueFlow() {
+        const char code[] = "enum {X=10}; int a[] = {[X]=1};";
+        ASSERT_EQUALS("enum Anonymous0 { X = 10 } ; int a [ 11 ] = { [ X ] = 1 } ;", tokenizeAndStringify(code));
+    }
+
     void labels() {
         ASSERT_EQUALS("void f ( ) { ab : ; a = 0 ; }", tokenizeAndStringify("void f() { ab: a=0; }"));
         //ticket #3176
@@ -6474,6 +6480,10 @@ private:
         ASSERT_EQUALS("tmpa*=a*b*=,b*tmp=,", testAst("{ ((tmp) = (*a)), ((*a) = (*b)), ((*b) = (tmp)); }"));
         ASSERT_EQUALS("a(*v=", testAst("(*(volatile unsigned int *)(a) = (v));"));
         ASSERT_EQUALS("i(j=", testAst("(int&)(i) = j;"));
+
+        ASSERT_EQUALS("", testAst("void f(enum E* var){}"));
+        ASSERT_EQUALS("", testAst("void f(enum E*& var){}"));
+        ASSERT_EQUALS("", testAst("void f(bool& var){}"));
     }
 
     void astunaryop() const { // unary operators

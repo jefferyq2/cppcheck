@@ -2167,6 +2167,49 @@ private:
               "}\n");
         ASSERT_EQUALS("[test.cpp:4]: (performance) Function parameter 'v' should be passed by const reference.\n", errout.str());
 
+        check("void f(const std::string& s, std::string t) {\n" // #12083
+              "    const std::string& v = !s.empty() ? s : t;\n"
+              "}\n");
+        ASSERT_EQUALS("[test.cpp:1]: (performance) Function parameter 't' should be passed by const reference.\n", errout.str());
+
+        check("struct S {\n" // #12138
+              "    union {\n"
+              "        int a = 0;\n"
+              "        int x;\n"
+              "    };\n"
+              "    union {\n"
+              "        int b = 0;\n"
+              "        int y;\n"
+              "    };\n"
+              "    union {\n"
+              "        int c = 0;\n"
+              "        int z;\n"
+              "    };\n"
+              "};\n"
+              "void f(S s) {\n"
+              "    if (s.x > s.y) {}\n"
+              "}\n");
+        ASSERT_EQUALS("", errout.str());
+
+        check("struct S { std::list<int> l; };\n" // #12147
+              "class C { public: std::list<int> l; };\n"
+              "bool f(S s) {\n"
+              "    return s.l.empty();\n"
+              "}\n"
+              "bool f(C c) {\n"
+              "    return c.l.empty();\n"
+              "}\n");
+        ASSERT_EQUALS("[test.cpp:3]: (performance) Function parameter 's' should be passed by const reference.\n"
+                      "[test.cpp:6]: (performance) Function parameter 'c' should be passed by const reference.\n",
+                      errout.str());
+
+        check("struct S { std::list<int> a[1][1]; };\n"
+              "bool f(S s) {\n"
+              "    return s.a[0][0].empty();\n"
+              "}\n");
+        ASSERT_EQUALS("[test.cpp:2]: (performance) Function parameter 's' should be passed by const reference.\n",
+                      errout.str());
+
         Settings settings1 = settingsBuilder().platform(Platform::Type::Win64).build();
         check("using ui64 = unsigned __int64;\n"
               "ui64 Test(ui64 one, ui64 two) { return one + two; }\n",
@@ -2201,7 +2244,9 @@ private:
         check("void f(std::string str) {\n"
               "    std::string& s2 = str;\n"
               "}");
-        ASSERT_EQUALS("[test.cpp:2]: (style) Variable 's2' can be declared as reference to const\n", errout.str());
+        ASSERT_EQUALS("[test.cpp:1]: (performance) Function parameter 'str' should be passed by const reference.\n"
+                      "[test.cpp:2]: (style) Variable 's2' can be declared as reference to const\n",
+                      errout.str());
 
         check("void f(std::string str) {\n"
               "    const std::string& s2 = str;\n"
@@ -2354,7 +2399,9 @@ private:
               "    int& i = x[0];\n"
               "    return i;\n"
               "}");
-        ASSERT_EQUALS("[test.cpp:2]: (style) Variable 'i' can be declared as reference to const\n", errout.str());
+        ASSERT_EQUALS("[test.cpp:1]: (performance) Function parameter 'x' should be passed by const reference.\n"
+                      "[test.cpp:2]: (style) Variable 'i' can be declared as reference to const\n",
+                      errout.str());
 
         check("int f(std::vector<int>& x) {\n"
               "    return x[0];\n"
@@ -2371,7 +2418,7 @@ private:
               "    static int& i = x[0];\n"
               "    return i;\n"
               "}");
-        ASSERT_EQUALS("", errout.str());
+        ASSERT_EQUALS("[test.cpp:1]: (performance) Function parameter 'x' should be passed by const reference.\n", errout.str());
 
         check("int f(std::vector<int> x) {\n"
               "    int& i = x[0];\n"
@@ -3828,6 +3875,13 @@ private:
               "    qsort(p, nmemb, size, cmp);\n"
               "}\n");
         ASSERT_EQUALS("", errout.str());
+
+        check("void g(bool *r, std::size_t *b) {\n" // #12129
+              "    if (*r && *b >= 5) {}\n"
+              "}\n");
+        ASSERT_EQUALS("[test.cpp:1]: (style) Parameter 'r' can be declared as pointer to const\n"
+                      "[test.cpp:1]: (style) Parameter 'b' can be declared as pointer to const\n",
+                      errout.str());
     }
 
     void switchRedundantAssignmentTest() {
@@ -4686,13 +4740,13 @@ private:
               "}", nullptr, false, false);
         ASSERT_EQUALS("[test.cpp:3]: (style) Consecutive return, break, continue, goto or throw statements are unnecessary.\n", errout.str());
 
-        const char xmldata[] = "<?xml version=\"1.0\"?>\n"
-                               "<def>\n"
-                               "  <function name=\"exit\">\n"
-                               "    <noreturn>true</noreturn>\n"
-                               "    <arg nr=\"1\"/>\n"
-                               "  </function>\n"
-                               "</def>";
+        constexpr char xmldata[] = "<?xml version=\"1.0\"?>\n"
+                                   "<def>\n"
+                                   "  <function name=\"exit\">\n"
+                                   "    <noreturn>true</noreturn>\n"
+                                   "    <arg nr=\"1\"/>\n"
+                                   "  </function>\n"
+                                   "</def>";
         Settings settings = settingsBuilder().libraryxml(xmldata, sizeof(xmldata)).build();
 
         check("void foo() {\n"
@@ -6375,14 +6429,14 @@ private:
     }
 
     void duplicateExpression3() {
-        const char xmldata[] = "<?xml version=\"1.0\"?>\n"
-                               "<def>\n"
-                               "  <function name=\"mystrcmp\">\n"
-                               "    <pure/>\n"
-                               "    <arg nr=\"1\"/>\n"
-                               "    <arg nr=\"2\"/>\n"
-                               "  </function>\n"
-                               "</def>";
+        constexpr char xmldata[] = "<?xml version=\"1.0\"?>\n"
+                                   "<def>\n"
+                                   "  <function name=\"mystrcmp\">\n"
+                                   "    <pure/>\n"
+                                   "    <arg nr=\"1\"/>\n"
+                                   "    <arg nr=\"2\"/>\n"
+                                   "  </function>\n"
+                                   "</def>";
         Settings settings = settingsBuilder().libraryxml(xmldata, sizeof(xmldata)).build();
 
         check("void foo() {\n"
@@ -6900,6 +6954,12 @@ private:
                       "[test.cpp:14]: (style) The comparison '0 > S::E0' is always false.\n"
                       "[test.cpp:15]: (style) The comparison '0 > S::F::F0' is always false.\n",
                       errout.str());
+
+        check("template<typename T, typename U>\n" // #12122
+              "void f() {\n"
+              "    static_assert(std::is_same<T, U>::value || std::is_integral<T>::value);\n"
+              "}\n");
+        ASSERT_EQUALS("", errout.str());
     }
 
     void duplicateExpressionLoop() {
@@ -8386,7 +8446,7 @@ private:
               "}");
         ASSERT_EQUALS("[test.cpp:3]: (performance, inconclusive) Use const reference for 'a' to avoid unnecessary data copying.\n", errout.str());
 
-        check("class A{public:A(){}};\n"
+        check("class A { public: A() {} char x[100]; };\n"
               "const A& getA(){static A a;return a;}\n"
               "int main()\n"
               "{\n"
@@ -8412,7 +8472,7 @@ private:
               "}");
         ASSERT_EQUALS("[test.cpp:1] -> [test.cpp:4]: (style) Local variable \'getA\' shadows outer function\n", errout.str());
 
-        check("class A{public:A(){}};\n"
+        check("class A { public: A() {} char x[100]; };\n"
               "const A& getA(){static A a;return a;}\n"
               "int main()\n"
               "{\n"
@@ -8561,6 +8621,19 @@ private:
               "}\n"
               "void g() {\n"
               "    std::string s = getC().get();\n"
+              "}\n");
+        ASSERT_EQUALS("", errout.str());
+
+        check("struct S {\n" // #12139
+              "    int x, y;\n"
+              "};\n"
+              "struct T {\n"
+              "    S s;\n"
+              "    const S& get() const { return s; }\n"
+              "};\n"
+              "void f(const T& t) {\n"
+              "    const S a = t.get();\n"
+              "    if (a.x > a.y) {}\n"
               "}\n");
         ASSERT_EQUALS("", errout.str());
     }
@@ -8940,14 +9013,14 @@ private:
               "  state_t *x = NULL;\n"
               "  x = dostuff();\n"
               "}");
-        ASSERT_EQUALS("", errout.str());
+        ASSERT_EQUALS("test.cpp:2:style:Variable 'x' can be declared as pointer to const\n", errout.str());
 
         check("void f() {\n"
               "  state_t *x;\n"
               "  x = NULL;\n"
               "  x = dostuff();\n"
               "}");
-        ASSERT_EQUALS("", errout.str());
+        ASSERT_EQUALS("test.cpp:2:style:Variable 'x' can be declared as pointer to const\n", errout.str());
 
         check("int foo() {\n" // #4420
               "    int x;\n"
@@ -9080,7 +9153,8 @@ private:
               "        barney(x);\n"
               "    }\n"
               "}");
-        ASSERT_EQUALS("test.cpp:2:style:The scope of the variable 'p' can be reduced.\n",
+        ASSERT_EQUALS("test.cpp:2:style:The scope of the variable 'p' can be reduced.\n"
+                      "test.cpp:2:style:Variable 'p' can be declared as pointer to const\n",
                       errout.str());
 
         check("void foo() {\n"
@@ -9172,14 +9246,14 @@ private:
               "   a = (void*)0;\n"
               "   a = p;\n"
               "}");
-        ASSERT_EQUALS("", errout.str());
+        ASSERT_EQUALS("[test.cpp:2]: (style) Variable 'a' can be declared as pointer to const\n", errout.str());
 
         check("void f() {\n"
               "   void* a;\n"
               "   a = (void*)0U;\n"
               "   a = p;\n"
               "}");
-        ASSERT_EQUALS("", errout.str());
+        ASSERT_EQUALS("[test.cpp:2]: (style) Variable 'a' can be declared as pointer to const\n", errout.str());
     }
 
     void redundantVarAssignment_struct() {
@@ -9436,7 +9510,7 @@ private:
               "    int *p = NULL;\n"
               "    p = dostuff();\n"
               "}");
-        ASSERT_EQUALS("", errout.str());
+        ASSERT_EQUALS("test.cpp:2:style:Variable 'p' can be declared as pointer to const\n", errout.str());
 
         // "trivial" initialization => do not warn
         check("void f() {\n"
@@ -9909,6 +9983,16 @@ private:
         check("std::map<int, int> m;\n" // #10817
               "void f(const decltype(m)::const_iterator i) {}");
         ASSERT_EQUALS("", errout.str());
+
+        check("int (*pf) (std::vector<int>) = nullptr;\n" // #12118
+              "int f(std::vector<int> v) {\n"
+              "    return v.size();\n"
+              "}\n"
+              "void g() {\n"
+              "    pf = f;\n"
+              "}\n");
+        ASSERT_EQUALS("[test.cpp:6] -> [test.cpp:2]: (performance) Function parameter 'v' should be passed by const reference. However it seems that 'f' is a callback function.\n",
+                      errout.str());
     }
 
     void checkComparisonFunctionIsAlwaysTrueOrFalse() {

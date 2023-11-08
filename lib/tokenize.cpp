@@ -618,7 +618,6 @@ namespace {
         std::pair<Token*, Token*> mRangeType;
         std::pair<Token*, Token*> mRangeTypeQualifiers;
         std::pair<Token*, Token*> mRangeAfterVar;
-        std::string mTypedefName;  // Name of typedef type
         Token* mNameToken{nullptr};
         bool mFail = false;
         bool mReplaceFailed = false;
@@ -643,7 +642,6 @@ namespace {
                 if (Token::Match(nameToken, "%name% ;")) {
                     mRangeType = rangeBefore;
                     mRangeTypeQualifiers = rangeQualifiers;
-                    mTypedefName = nameToken->str();
                     Token* typeName = rangeBefore.second->previous();
                     if (typeName->isKeyword()) {
                         (void)num;
@@ -3395,6 +3393,8 @@ bool Tokenizer::simplifyTokens1(const std::string &configuration)
         } else {
             ValueFlow::setValues(list, *mSymbolDatabase, mErrorLogger, mSettings, mTimerResults);
         }
+
+        arraySizeAfterValueFlow();
     }
 
     // Warn about unhandled character literals
@@ -3805,6 +3805,45 @@ void Tokenizer::arraySize()
                 tok->insertToken(std::to_string(sz));
 
             tok = end->next() ? end->next() : end;
+        }
+    }
+}
+
+void Tokenizer::arraySizeAfterValueFlow()
+{
+    // After ValueFlow, adjust array sizes.
+    for (const Variable* var: mSymbolDatabase->variableList()) {
+        if (!var || !var->isArray())
+            continue;
+        if (!Token::Match(var->nameToken(), "%name% [ ] = { ["))
+            continue;
+        MathLib::bigint maxIndex = -1;
+        const Token* const startToken = var->nameToken()->tokAt(4);
+        const Token* const endToken = startToken->link();
+        for (const Token* tok = startToken; tok != endToken; tok = tok->next()) {
+            if (!Token::Match(tok, "[{,] [") || !Token::simpleMatch(tok->linkAt(1), "] ="))
+                continue;
+            const Token* expr = tok->next()->astOperand1();
+            if (expr && expr->hasKnownIntValue())
+                maxIndex = std::max(maxIndex, expr->getKnownIntValue());
+        }
+        if (maxIndex >= 0) {
+            // insert array size
+            Token* tok = const_cast<Token*>(var->nameToken()->next());
+            tok->insertToken(std::to_string(maxIndex + 1));
+            // ast
+            tok->astOperand2(tok->next());
+            // Token::scope
+            tok->next()->scope(tok->scope());
+            // Value flow
+            ValueFlow::Value value(maxIndex + 1);
+            value.setKnown();
+            tok->next()->addValue(value);
+            // Set array dimensions
+            Dimension d;
+            d.num = maxIndex + 1;
+            std::vector<Dimension> dimensions{d};
+            const_cast<Variable*>(var)->setDimensions(dimensions);
         }
     }
 }
@@ -8911,8 +8950,12 @@ Token* Tokenizer::getAttributeFuncTok(Token* tok, bool gccattr) const {
         Token *prev = tok->previous();
         while (Token::Match(prev, "%name%"))
             prev = prev->previous();
-        if (Token::simpleMatch(prev, ")") && Token::Match(prev->link()->previous(), "%name% ("))
-            return prev->link()->previous();
+        if (Token::simpleMatch(prev, ")")) {
+            if (Token::Match(prev->link()->previous(), "%name% ("))
+                return prev->link()->previous();
+            if (Token::Match(prev->link()->tokAt(-2), "%name% ) ("))
+                return prev->link()->tokAt(-2);
+        }
         if (Token::simpleMatch(prev, ")") && Token::Match(prev->link()->tokAt(-2), "operator %op% (") && isCPP())
             return prev->link()->tokAt(-2);
         if ((!prev || Token::Match(prev, "[;{}*]")) && Token::Match(tok->previous(), "%name%"))

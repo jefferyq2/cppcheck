@@ -22,7 +22,6 @@
 #include "cppcheckexecutor.h"
 #include "errortypes.h"
 #include "helpers.h"
-#include "importproject.h"
 #include "platform.h"
 #include "redirect.h"
 #include "settings.h"
@@ -317,6 +316,11 @@ private:
 #else
         TEST_CASE(ruleFileNotSupported);
 #endif
+        TEST_CASE(signedChar);
+        TEST_CASE(signedChar2);
+        TEST_CASE(unsignedChar);
+        TEST_CASE(unsignedChar2);
+        TEST_CASE(signedCharUnsignedChar);
 
         TEST_CASE(ignorepaths1);
         TEST_CASE(ignorepaths2);
@@ -2015,7 +2019,6 @@ private:
                         "</project>");
         const char * const argv[] = {"cppcheck", "--project=project.cppcheck"};
         ASSERT(parser->parseFromArgs(2, argv));
-        ASSERT_EQUALS(static_cast<int>(ImportProject::Type::CPPCHECK_GUI), static_cast<int>(settings->project.projectType));
         ASSERT_EQUALS(1, parser->getPathNames().size());
         auto it = parser->getPathNames().cbegin();
         ASSERT_EQUALS("dir", *it);
@@ -2066,6 +2069,51 @@ private:
         ASSERT(parser->parseFromArgs(3, argv));
         ASSERT_EQUALS(1, settings->addons.size());
         ASSERT_EQUALS("misra", *settings->addons.cbegin());
+        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+    }
+
+    void signedChar() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--fsigned-char", "file.cpp"};
+        settings->platform.defaultSign = '\0';
+        ASSERT(parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS('s', settings->platform.defaultSign);
+        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+    }
+
+    void signedChar2() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--platform=avr8", "--fsigned-char", "file.cpp"};
+        settings->platform.defaultSign = '\0';
+        ASSERT(parser->parseFromArgs(4, argv));
+        ASSERT_EQUALS('s', settings->platform.defaultSign);
+        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+    }
+
+    void unsignedChar() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--funsigned-char", "file.cpp"};
+        settings->platform.defaultSign = '\0';
+        ASSERT(parser->parseFromArgs(3, argv));
+        ASSERT_EQUALS('u', settings->platform.defaultSign);
+        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+    }
+
+    void unsignedChar2() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--platform=mips32", "--funsigned-char", "file.cpp"};
+        settings->platform.defaultSign = '\0';
+        ASSERT(parser->parseFromArgs(4, argv));
+        ASSERT_EQUALS('u', settings->platform.defaultSign);
+        ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
+    }
+
+    void signedCharUnsignedChar() {
+        REDIRECT;
+        const char * const argv[] = {"cppcheck", "--fsigned-char", "--funsigned-char", "file.cpp"};
+        settings->platform.defaultSign = '\0';
+        ASSERT(parser->parseFromArgs(4, argv));
+        ASSERT_EQUALS('u', settings->platform.defaultSign);
         ASSERT_EQUALS("", GET_REDIRECT_OUTPUT);
     }
 
