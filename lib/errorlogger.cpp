@@ -37,7 +37,7 @@
 #include <unordered_map>
 #include <utility>
 
-#include <tinyxml2.h>
+#include "xml.h"
 
 const std::set<std::string> ErrorLogger::mCriticalErrorIds{
     "cppcheckError",
@@ -45,6 +45,7 @@ const std::set<std::string> ErrorLogger::mCriticalErrorIds{
     "internalAstError",
     "instantiationError",
     "internalError",
+    "misra-config",
     "premium-internalError",
     "premium-invalidArgument",
     "premium-invalidLicense",
@@ -168,6 +169,7 @@ ErrorMessage::ErrorMessage(const tinyxml2::XMLElement * const errmsg)
     severity = attr ? severityFromString(attr) : Severity::none;
 
     attr = errmsg->Attribute("cwe");
+    // cppcheck-suppress templateInstantiation - TODO: fix this - see #11631
     cwe.id = attr ? strToInt<unsigned short>(attr) : 0;
 
     attr = errmsg->Attribute("inconclusive");
@@ -616,11 +618,14 @@ static void replaceColors(std::string& source) {
     replace(source, substitutionMap);
 }
 
+// TODO: remove default parameters
 std::string ErrorMessage::toString(bool verbose, const std::string &templateFormat, const std::string &templateLocation) const
 {
     // Save this ErrorMessage in plain text.
 
+    // TODO: should never happen - remove this
     // No template is given
+    // (not 100%) equivalent templateFormat: {callstack} ({severity}{inconclusive:, inconclusive}) {message}
     if (templateFormat.empty()) {
         std::string text;
         if (!callStack.empty()) {

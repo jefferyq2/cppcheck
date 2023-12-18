@@ -22,6 +22,7 @@
 
 #include "errortypes.h"
 #include "filelist.h"
+#include "filesettings.h"
 #include "importproject.h"
 #include "projectfile.h"
 
@@ -94,6 +95,18 @@ ComplianceReportDialog::ComplianceReportDialog(ProjectFile* projectFile, QString
     mUI->setupUi(this);
     mUI->mEditProjectName->setText(projectFile->getProjectName());
     connect(mUI->buttonBox, &QDialogButtonBox::clicked, this, &ComplianceReportDialog::buttonClicked);
+    mUI->mCodingStandard->clear();
+    if (projectFile->getCodingStandards().contains("misra-c-2023"))
+        mUI->mCodingStandard->addItem("Misra C 2023");
+    else if (projectFile->getAddons().contains("misra"))
+        mUI->mCodingStandard->addItem("Misra C 2012");
+    if (projectFile->getCodingStandards().contains("misra-c++-2008"))
+        mUI->mCodingStandard->addItem("Misra C++ 2008");
+    if (projectFile->getCodingStandards().contains("cert-c-2016"))
+        mUI->mCodingStandard->addItem("Cert C");
+    if (projectFile->getCodingStandards().contains("cert-c++-2016"))
+        mUI->mCodingStandard->addItem("Cert C++");
+    mUI->mCodingStandard->addItems(projectFile->getCodingStandards());
 }
 
 ComplianceReportDialog::~ComplianceReportDialog()
@@ -167,7 +180,7 @@ void ComplianceReportDialog::save()
             p.ignorePaths(toStdStringList(mProjectFile->getExcludedPaths()));
 
             QDir dir(inf.absoluteDir());
-            for (const ImportProject::FileSettings& fs: p.fileSettings)
+            for (const FileSettings& fs: p.fileSettings)
                 fileList.addFile(dir.relativeFilePath(QString::fromStdString(fs.filename)));
         }
 
@@ -196,8 +209,9 @@ void ComplianceReportDialog::save()
 
     QStringList args{"--project-name=" + projectName,
                      "--project-version=" + projectVersion,
-                     "--output-file=" + outFile,
-                     "--suppressions=" + suppressions.join(",")};
+                     "--output-file=" + outFile};
+    if (!suppressions.isEmpty())
+        args << "--suppressions=" + suppressions.join(",");
 
     args << ("--" + std);
 
@@ -214,4 +228,13 @@ void ComplianceReportDialog::save()
     process.start(appPath + "/compliance-report", args);
 #endif
     process.waitForFinished();
+    const QString output = process.readAll();
+    if (!output.isEmpty()) {
+        QMessageBox msg(QMessageBox::Critical,
+                        tr("Save compliance report"),
+                        output,
+                        QMessageBox::Ok,
+                        this);
+        msg.exec();
+    }
 }

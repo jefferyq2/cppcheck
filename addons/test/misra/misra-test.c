@@ -418,6 +418,21 @@ static void misra_8_14(char * restrict str) {(void)str;} // 8.14
 struct S_9_3 { struct S_9_3* p; int x; };
 struct S_9_3* s_9_3_array[] = { x, NULL }; // 8.4
 
+// #10854
+struct Entry_9_2{
+    union{ // 19.2
+        const int *p;
+        int x;
+    };
+    int y;
+};
+
+static void misra_9_2_10854(void){
+    struct Entry_9_2 e1[] =
+    {
+        {{ .x = 1 }, .y = 2 }
+    };
+}
 static void misra_9_empty_or_zero_initializers(void) {
     int a[2]    = {};                          // 9.2
     int b[2][2] = {};                          // 9.2
@@ -578,13 +593,13 @@ static void misra_9_struct_initializers(void) {
     // Struct with fields of unknown type
     struct_with_unknown_fields ufa       = { 1, { 1, 2 }, { 1, 2 } };
     struct_with_unknown_fields ufb       = { 1, 1, 2 };                     // 9.2
-    struct_with_unknown_fields[2] ufc    = { {1, { 1, 2 }, { 1, 2 } },
+    struct_with_unknown_fields ufc[2]    = { {1, { 1, 2 }, { 1, 2 } },
                                              { 2, { 1, 2 }, { 1, 2 } } };
-    struct_with_unknown_fields[2][2] ufd = { {1, { 1, 2 }, { 1, 2 } },
+    struct_with_unknown_fields ufd[2][2] = { {1, { 1, 2 }, { 1, 2 } },      // 9.2 9.3
                                              { 2, { 1, 2 }, { 1, 2 } } };
-    struct_with_unknown_fields[2] ufe    = { 1, { 1, 2 }, { 1, 2 },         // TODO: 9.2
+    struct_with_unknown_fields ufe[2]    = { 1, { 1, 2 }, { 1, 2 },         // 9.2 9.3
                                              2, { 1, 2 }, { 1, 2 } };
-    struct_with_unknown_fields[3] uff    = { { 1, { 1, 2 }, { 1, 2 }},      // TODO: 9.3 9.4
+    struct_with_unknown_fields uff[3]    = { { 1, { 1, 2 }, { 1, 2 }},      // 9.3 9.4
                                              {2, { 1, 2 }, { 1, 2 }},
                                              [1] = { 2, { 1, 2 }, { 1, 2 }} };
 
@@ -749,7 +764,7 @@ static void misra_10_6(u8 x, char c1, char c2) {
   u16 y1 = x+x; // 10.6
   u16 y2 = (0x100u - 0x80u); // rhs is not a composite expression because it's a constant expression
   u16 z = ~u8 x ;//10.6
-  s32 i = c1 - c2; // 10.3 FIXME: False positive for 10.6 (this is compliant). Trac #9488
+  s32 i = c1 - c2; // 10.3
   struct misra_10_6_s s;
   s.a = x & 1U; // no-warning (#10487)
 }
@@ -779,6 +794,13 @@ static void misra_10_8(u8 x, s32 a, s32 b) {
 int (*misra_11_1_p)(void); // 8.4
 void *misra_11_1_bad1 = (void*)misra_11_1_p; // 11.1 8.4
 
+// #12172
+typedef void (*pfFunc_11_1)(uint32_t some);
+extern pfFunc_11_1 data_11_1[10];
+void func_11_1(pfFunc_11_1 ptr){ //8.4
+    data_11_1[index] = ptr; // no-warning
+}
+
 struct misra_11_2_s;
 struct misra_11_2_t;
 
@@ -791,12 +813,15 @@ static void misra_11_3(u8* p, struct Fred *fred) {
   struct Wilma *wilma = (struct Wilma *)fred; // 11.3
 }
 
+typedef struct { uint32_t something; } struct_11_4;
+#define A_11_4 ((struct_11_4 *)0x40000U)  // 11.4
+
 static void misra_11_4(u8*p) {
   u64 y = (u64)p; // 11.4
   u8 *misra_11_4_A = ( u8 * ) 0x0005;// 11.4
   s32 misra_11_4_B;
   u8 *q = ( u8 * ) misra_11_4_B; // 11.4
-
+  dummy = A_11_4->something; // no-warning
 }
 
 static void misra_11_5(void *p) {
@@ -811,6 +836,8 @@ static void misra_11_6(void) {
   x = (u64)p;      // 11.6
   p = ( void * )0; // no-warning
   (void)p;         // no-warning
+  // # 12184
+  p = (void*)0U;   // no-warning
 }
 
 
@@ -1730,6 +1757,9 @@ static void misra_17_6(int x[static 20]) {(void)x;} // 17.6
 static int calculation(int x) { return x + 1; }
 static void misra_17_7(void) {
   calculation(123); // 17.7
+  int (*calc_ptr)(int) = &calculation;
+  calc_ptr(123); // 17.7
+  int y = calc_ptr(123);
 }
 
 static void misra_17_8(int x) {
@@ -1783,6 +1813,8 @@ static void misra_18_8(int x) {
   int buf1[10];
   int buf2[sizeof(int)];
   int vla[x]; // 18.8
+  // #9498
+  int vlb[y]; // config
   static const unsigned char arr18_8_1[] = UNDEFINED_ID;
   static uint32_t enum_test_0[R18_8_ENUM_CONSTANT_0] = {0};
 }

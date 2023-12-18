@@ -509,7 +509,7 @@ void clangimport::AstNode::setLocations(TokenList *tokenList, int file, int line
         } else if (ext[0] == '<') {
             const std::string::size_type colon = ext.find(':');
             if (colon != std::string::npos) {
-                const bool windowsPath = colon == 2 && ext.size() > 4 && ext[3] == '\\';
+                const bool windowsPath = colon == 2 && ext.size() > 3 && ext[2] == ':';
                 const std::string::size_type sep1 = windowsPath ? ext.find(':', 4) : colon;
                 const std::string::size_type sep2 = ext.find(':', sep1 + 1);
                 file = tokenList->appendFileIfNew(ext.substr(1, sep1 - 1));
@@ -992,7 +992,7 @@ Token *clangimport::AstNode::createTokens(TokenList *tokenList)
 
         mData->enumValue = 0;
         Token *enumtok = addtoken(tokenList, "enum");
-        Token *nametok = nullptr;
+        const Token *nametok = nullptr;
         {
             int nameIndex = mExtTokens.size() - 1;
             while (nameIndex > colIndex && mExtTokens[nameIndex][0] == '\'')

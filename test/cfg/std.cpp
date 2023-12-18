@@ -602,6 +602,15 @@ void nullPointer_localtime_s(const std::time_t *restrict time, struct tm *restri
     (void)std::localtime_s(time, NULL);
     (void)std::localtime_s(time, result);
 }
+
+void memleak_localtime_s(const std::time_t *restrict time, struct tm *restrict result) // #9258
+{
+    const time_t t = time(0);
+    const struct tm* const now = new tm();
+    if (localtime_s(now, &t) == 0)
+        std::cout << now->tm_mday << std::endl;
+    // cppcheck-suppress memleak
+}
 #endif // __STDC_LIB_EXT1__
 
 size_t nullPointer_strftime(char *s, size_t max, const char *fmt, const struct tm *p)
@@ -1043,8 +1052,8 @@ void uninitvar_isxdigit(void)
 void uninitvar_proj(void)
 {
     double d;
+    // cppcheck-suppress uninitvar
     const std::complex<double> dc(d,d);
-    // TODO cppcheck-suppress uninitvar
     (void)std::proj(dc);
 }
 
@@ -4206,7 +4215,7 @@ void uninivar_istream_read(std::istream &f)
     f.read(buffer, size);
 }
 
-void uninitvar_string_compare(std::string &teststr, std::wstring &testwstr)
+void uninitvar_string_compare(const std::string &teststr, const std::wstring &testwstr)
 {
     const char *pStrUninit;
     // cppcheck-suppress uninitvar
@@ -4497,7 +4506,7 @@ void getline()
     in.close();
 }
 
-// TODO cppcheck-suppress passedByValue
+// cppcheck-suppress passedByValue
 void stream_write(std::ofstream& s, std::vector<char> v) {
     if (v.empty()) {}
     s.write(v.data(), v.size());
@@ -4636,6 +4645,13 @@ void string_view_unused(std::string_view v)
 {
     // cppcheck-suppress ignoredReturnValue
     v.substr(1, 3);
+}
+
+// cppcheck-suppress passedByValue
+void string_substr(std::string s)
+{
+    // cppcheck-suppress ignoredReturnValue
+    s.substr(1, 3);
 }
 
 void stdspan()

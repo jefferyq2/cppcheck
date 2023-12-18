@@ -64,7 +64,7 @@ class QWidget;
 const QString WORK_FOLDER(QDir::homePath() + "/triage");
 const QString DACA2_PACKAGES(QDir::homePath() + "/daca2-packages");
 
-const int MAX_ERRORS = 100;
+constexpr int MAX_ERRORS = 100;
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
@@ -285,7 +285,7 @@ bool MainWindow::unpackArchive(const QString &archiveName)
     return runProcess("tar", args);
 }
 
-void MainWindow::showResult(QListWidgetItem *item)
+void MainWindow::showResult(const QListWidgetItem *item)
 {
     ui->statusBar->clearMessage();
     const bool local = item->text().startsWith(DACA2_PACKAGES);
@@ -359,6 +359,7 @@ void MainWindow::findInFilesClicked()
     ui->inFilesResult->clear();
     const QString text = ui->filterEdit->text();
 
+    // cppcheck-suppress shadowFunction - TODO: fix this
     QStringList filter;
     if (ui->hFilesFilter->isChecked())
         filter.append(hFiles);

@@ -1,4 +1,3 @@
-
 import logging
 import os
 import subprocess
@@ -43,7 +42,7 @@ def create_gui_project_file(project_file, root_path=None, import_project=None, p
     f.close()
 
 
-def lookup_cppcheck_exe():
+def __lookup_cppcheck_exe():
     # path the script is located in
     script_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -52,19 +51,28 @@ def lookup_cppcheck_exe():
     if sys.platform == "win32":
         exe_name += ".exe"
 
-    for base in (script_path + '/../../', './'):
-        for path in ('', 'bin/', 'bin/debug/'):
-            exe_path = base + path + exe_name
-            if os.path.isfile(exe_path):
-                print("using '{}'".format(exe_path))
-                return exe_path
+    exe_path = None
 
-    return None
+    if 'TEST_CPPCHECK_EXE_LOOKUP_PATH' in os.environ:
+        lookup_paths = [os.environ['TEST_CPPCHECK_EXE_LOOKUP_PATH']]
+    else:
+        lookup_paths = [os.path.join(script_path, '..', '..'), '.']
+
+    for base in lookup_paths:
+        for path in ('', 'bin', os.path.join('bin', 'debug')):
+            tmp_exe_path = os.path.join(base, path, exe_name)
+            if os.path.isfile(tmp_exe_path):
+                exe_path = tmp_exe_path
+                break
+
+    if exe_path:
+        print("using '{}'".format(exe_path))
+    return exe_path
 
 
 # Run Cppcheck with args
-def cppcheck(args, env=None):
-    exe = lookup_cppcheck_exe()
+def cppcheck(args, env=None, remove_active_checkers=True):
+    exe = __lookup_cppcheck_exe()
     assert exe is not None, 'no cppcheck binary found'
 
     logging.info(exe + ' ' + ' '.join(args))
@@ -72,6 +80,18 @@ def cppcheck(args, env=None):
     comm = p.communicate()
     stdout = comm[0].decode(encoding='utf-8', errors='ignore').replace('\r\n', '\n')
     stderr = comm[1].decode(encoding='utf-8', errors='ignore').replace('\r\n', '\n')
-    if stdout.find('\nActive checkers:') > 0:
+    if remove_active_checkers and stdout.find('\nActive checkers:') > 0:
         stdout = stdout[:1 + stdout.find('\nActive checkers:')]
     return p.returncode, stdout, stderr
+
+
+def assert_cppcheck(args, ec_exp=None, out_exp=None, err_exp=None, env=None):
+    exitcode, stdout, stderr = cppcheck(args, env)
+    if ec_exp is not None:
+        assert exitcode == ec_exp, stdout
+    if out_exp is not None:
+        out_lines = stdout.splitlines()
+        assert out_lines == out_exp, stdout
+    if err_exp is not None:
+        err_lines = stderr.splitlines()
+        assert err_lines == err_exp, stderr

@@ -26,8 +26,10 @@
 #include "fixture.h"
 #include "tokenize.h"
 
+#include <list>
 #include <sstream> // IWYU pragma: keep
 #include <string>
+#include <vector>
 
 #include <simplecpp.h>
 
@@ -295,6 +297,11 @@ private:
               "   return 123456U * x;\n"
               "}",settings);
         ASSERT_EQUALS("", errout.str());
+
+        check("int f(int i) {\n" // #12117
+              "    return (i == 31) ? 1 << i : 0;\n"
+              "}", settings);
+        ASSERT_EQUALS("[test.cpp:2] -> [test.cpp:2]: (warning) Shifting signed 32-bit value by 31 bits is undefined behaviour. See condition at line 2.\n", errout.str());
     }
 
     void signConversion() {
@@ -483,6 +490,8 @@ private:
         dui.std = "c++11";
         // this is set by the production code via cppcheck::Platform::getLimitDefines()
         dui.defines.emplace_back("INT_MIN=-2147483648");
+        dui.defines.emplace_back("INT32_MAX=2147483647");
+        dui.defines.emplace_back("int32_t=int");
 
         checkP("int fun(int x)\n"
                "{\n"
@@ -494,6 +503,13 @@ private:
                "    fun(INT_MIN);\n"
                "}", settings, "test.cpp", dui);
         ASSERT_EQUALS("[test.cpp:3]: (error) Signed integer overflow for expression '-x'.\n", errout.str());
+
+        checkP("void f() {\n" // #8399
+               "    int32_t i = INT32_MAX;\n"
+               "    i << 1;\n"
+               "    i << 2;\n"
+               "}", settings, "test.cpp", dui);
+        ASSERT_EQUALS("[test.cpp:4]: (error) Signed integer overflow for expression 'i<<2'.\n", errout.str());
     }
 };
 
