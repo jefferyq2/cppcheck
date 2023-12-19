@@ -19,6 +19,7 @@
 #include "settings.h"
 #include "fixture.h"
 #include "platform.h"
+#include "standards.h"
 #include "token.h"
 #include "tokenlist.h"
 
@@ -56,7 +57,7 @@ private:
         ASSERT_EQUALS("0xF0000000", tokenlist.front()->str());
     }
 
-    void inc() const {
+    void inc() {
         const char code[] = "a++1;1++b;";
 
         errout.str("");

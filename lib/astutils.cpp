@@ -107,31 +107,17 @@ static int getArgumentPos(const Token* ftok, const Token* tokToFind){
     return findArgumentPos(startTok, tokToFind);
 }
 
-template<class T, REQUIRES("T must be a Token class", std::is_convertible<T*, const Token*> )>
-static void astFlattenRecursive(T* tok, std::vector<T*>& result, const char* op, nonneg int depth = 0)
-{
-    ++depth;
-    if (!tok || depth >= 100)
-        return;
-    if (tok->str() == op) {
-        astFlattenRecursive(tok->astOperand1(), result, op, depth);
-        astFlattenRecursive(tok->astOperand2(), result, op, depth);
-    } else {
-        result.push_back(tok);
-    }
-}
-
 std::vector<const Token*> astFlatten(const Token* tok, const char* op)
 {
     std::vector<const Token*> result;
-    astFlattenRecursive(tok, result, op);
+    astFlattenCopy(tok, op, std::back_inserter(result));
     return result;
 }
 
 std::vector<Token*> astFlatten(Token* tok, const char* op)
 {
     std::vector<Token*> result;
-    astFlattenRecursive(tok, result, op);
+    astFlattenCopy(tok, op, std::back_inserter(result));
     return result;
 }
 
@@ -161,6 +147,15 @@ bool astHasVar(const Token * tok, nonneg int varid)
     if (tok->varId() == varid)
         return true;
     return astHasVar(tok->astOperand1(), varid) || astHasVar(tok->astOperand2(), varid);
+}
+
+bool astHasExpr(const Token* tok, nonneg int exprid)
+{
+    if (!tok)
+        return false;
+    if (tok->exprId() == exprid)
+        return true;
+    return astHasExpr(tok->astOperand1(), exprid) || astHasExpr(tok->astOperand2(), exprid);
 }
 
 static bool astIsCharWithSign(const Token *tok, ValueType::Sign sign)
@@ -1212,45 +1207,46 @@ SmallVector<ReferenceToken> followAllReferences(const Token* tok,
             return x.token < y.token;
         }
     };
-    SmallVector<ReferenceToken> refs_result;
     if (!tok)
-        return refs_result;
+        return {};
     if (depth < 0) {
+        SmallVector<ReferenceToken> refs_result;
         refs_result.push_back({tok, std::move(errors)});
         return refs_result;
     }
     const Variable *var = tok->variable();
     if (var && var->declarationId() == tok->varId()) {
         if (var->nameToken() == tok || isStructuredBindingVariable(var)) {
+            SmallVector<ReferenceToken> refs_result;
             refs_result.push_back({tok, std::move(errors)});
             return refs_result;
         }
         if (var->isReference() || var->isRValueReference()) {
             const Token * const varDeclEndToken = var->declEndToken();
             if (!varDeclEndToken) {
+                SmallVector<ReferenceToken> refs_result;
                 refs_result.push_back({tok, std::move(errors)});
                 return refs_result;
             }
             if (var->isArgument()) {
                 errors.emplace_back(varDeclEndToken, "Passed to reference.");
+                SmallVector<ReferenceToken> refs_result;
                 refs_result.push_back({tok, std::move(errors)});
                 return refs_result;
             }
             if (Token::simpleMatch(varDeclEndToken, "=")) {
                 if (astHasToken(varDeclEndToken, tok))
-                    return refs_result;
+                    return {};
                 errors.emplace_back(varDeclEndToken, "Assigned to reference.");
                 const Token *vartok = varDeclEndToken->astOperand2();
                 if (vartok == tok || (!temporary && isTemporary(true, vartok, nullptr, true) &&
                                       (var->isConst() || var->isRValueReference()))) {
+                    SmallVector<ReferenceToken> refs_result;
                     refs_result.push_back({tok, std::move(errors)});
                     return refs_result;
                 }
                 if (vartok)
                     return followAllReferences(vartok, temporary, inconclusive, std::move(errors), depth - 1);
-            } else {
-                refs_result.push_back({tok, std::move(errors)});
-                return refs_result;
             }
         }
     } else if (Token::simpleMatch(tok, "?") && Token::simpleMatch(tok->astOperand2(), ":")) {
@@ -1263,11 +1259,13 @@ SmallVector<ReferenceToken> followAllReferences(const Token* tok,
         result.insert(refs.cbegin(), refs.cend());
 
         if (!inconclusive && result.size() != 1) {
+            SmallVector<ReferenceToken> refs_result;
             refs_result.push_back({tok, std::move(errors)});
             return refs_result;
         }
 
         if (!result.empty()) {
+            SmallVector<ReferenceToken> refs_result;
             refs_result.insert(refs_result.end(), result.cbegin(), result.cend());
             return refs_result;
         }
@@ -1275,6 +1273,7 @@ SmallVector<ReferenceToken> followAllReferences(const Token* tok,
     } else if (tok->previous() && tok->previous()->function() && Token::Match(tok->previous(), "%name% (")) {
         const Function *f = tok->previous()->function();
         if (!Function::returnsReference(f)) {
+            SmallVector<ReferenceToken> refs_result;
             refs_result.push_back({tok, std::move(errors)});
             return refs_result;
         }
@@ -1287,17 +1286,20 @@ SmallVector<ReferenceToken> followAllReferences(const Token* tok,
                  followAllReferences(returnTok, temporary, inconclusive, errors, depth - returns.size())) {
                 const Variable* argvar = rt.token->variable();
                 if (!argvar) {
+                    SmallVector<ReferenceToken> refs_result;
                     refs_result.push_back({tok, std::move(errors)});
                     return refs_result;
                 }
                 if (argvar->isArgument() && (argvar->isReference() || argvar->isRValueReference())) {
                     const int n = getArgumentPos(argvar, f);
                     if (n < 0) {
+                        SmallVector<ReferenceToken> refs_result;
                         refs_result.push_back({tok, std::move(errors)});
                         return refs_result;
                     }
                     std::vector<const Token*> args = getArguments(tok->previous());
                     if (n >= args.size()) {
+                        SmallVector<ReferenceToken> refs_result;
                         refs_result.push_back({tok, std::move(errors)});
                         return refs_result;
                     }
@@ -1309,6 +1311,7 @@ SmallVector<ReferenceToken> followAllReferences(const Token* tok,
                         followAllReferences(argTok, temporary, inconclusive, std::move(er), depth - returns.size());
                     result.insert(refs.cbegin(), refs.cend());
                     if (!inconclusive && result.size() > 1) {
+                        SmallVector<ReferenceToken> refs_result;
                         refs_result.push_back({tok, std::move(errors)});
                         return refs_result;
                     }
@@ -1316,10 +1319,12 @@ SmallVector<ReferenceToken> followAllReferences(const Token* tok,
             }
         }
         if (!result.empty()) {
+            SmallVector<ReferenceToken> refs_result;
             refs_result.insert(refs_result.end(), result.cbegin(), result.cend());
             return refs_result;
         }
     }
+    SmallVector<ReferenceToken> refs_result;
     refs_result.push_back({tok, std::move(errors)});
     return refs_result;
 }
@@ -1481,7 +1486,7 @@ bool isUsedAsBool(const Token* const tok, const Settings* settings)
         return true;
     if (isForLoopCondition(tok))
         return true;
-    if (!Token::Match(parent, "%cop%")) {
+    if (!Token::Match(parent, "%cop%") && !(parent->str() == "(" && tok == parent->astOperand1())) {
         if (parent->str() == "," && parent->isInitComma())
             return false;
         std::vector<ValueType> vtParents = getParentValueTypes(tok, settings);
@@ -2254,7 +2259,7 @@ static T* getTokenArgumentFunctionImpl(T* tok, int& argn)
             parent = parent->astParent();
 
         // passing variable to subfunction?
-        if (Token::Match(parent, "[*[(,{]") || Token::Match(parent, "%oror%|&&"))
+        if (Token::Match(parent, "[*[(,{.]") || Token::Match(parent, "%oror%|&&"))
             ;
         else if (Token::simpleMatch(parent, ":")) {
             while (Token::Match(parent, "[?:]"))
@@ -2290,6 +2295,8 @@ static T* getTokenArgumentFunctionImpl(T* tok, int& argn)
         tok = tok->astOperand1();
     while (tok && (tok->isUnaryOp("*") || tok->str() == "["))
         tok = tok->astOperand1();
+    if (Token::Match(tok, ". * %name%")) // bailout for pointer to member
+        return tok->tokAt(2);
     while (Token::simpleMatch(tok, "."))
         tok = tok->astOperand2();
     while (Token::simpleMatch(tok, "::")) {
@@ -2630,6 +2637,8 @@ bool isVariableChanged(const Token *tok, int indirect, const Settings *settings,
         if (!ftok->function() || !ftok->function()->isConst())
             return true;
     }
+    if (Token::Match(tok2->astParent(), ". * %name%")) // bailout
+        return true;
 
     if (Token::simpleMatch(tok2, "[") && astIsContainer(tok) && vt && vt->container && vt->container->stdAssociativeLike)
         return true;
@@ -2758,8 +2767,10 @@ static bool isExpressionChangedAt(const F& getExprTok,
 {
     if (depth < 0)
         return true;
+    if (tok->isLiteral() || tok->isKeyword() || tok->isStandardType() || Token::Match(tok, ",|;|:"))
+        return false;
     if (tok->exprId() != exprid) {
-        if (globalvar && !tok->isKeyword() && Token::Match(tok, "%name% (") && !(tok->function() && tok->function()->isAttributePure()))
+        if (globalvar && Token::Match(tok, "%name% (") && !(tok->function() && tok->function()->isAttributePure()))
             // TODO: Is global variable really changed by function call?
             return true;
         int i = 1;
@@ -2943,27 +2954,29 @@ static const Token* findExpressionChangedImpl(const Token* expr,
     return result;
 }
 
-struct ExpressionChangedSimpleFind {
-    template<class F>
-    const Token* operator()(const Token* start, const Token* end, F f) const
-    {
-        return findToken(start, end, f);
-    }
-};
+namespace {
+    struct ExpressionChangedSimpleFind {
+        template<class F>
+        const Token* operator()(const Token* start, const Token* end, F f) const
+        {
+            return findToken(start, end, f);
+        }
+    };
 
-struct ExpressionChangedSkipDeadCode {
-    const Library* library;
-    const std::function<std::vector<MathLib::bigint>(const Token* tok)>* evaluate;
-    ExpressionChangedSkipDeadCode(const Library* library,
-                                  const std::function<std::vector<MathLib::bigint>(const Token* tok)>& evaluate)
-        : library(library), evaluate(&evaluate)
-    {}
-    template<class F>
-    const Token* operator()(const Token* start, const Token* end, F f) const
-    {
-        return findTokenSkipDeadCode(library, start, end, f, *evaluate);
-    }
-};
+    struct ExpressionChangedSkipDeadCode {
+        const Library* library;
+        const std::function<std::vector<MathLib::bigint>(const Token* tok)>* evaluate;
+        ExpressionChangedSkipDeadCode(const Library* library,
+                                      const std::function<std::vector<MathLib::bigint>(const Token* tok)>& evaluate)
+            : library(library), evaluate(&evaluate)
+        {}
+        template<class F>
+        const Token* operator()(const Token* start, const Token* end, F f) const
+        {
+            return findTokenSkipDeadCode(library, start, end, f, *evaluate);
+        }
+    };
+}
 
 const Token* findExpressionChanged(const Token* expr,
                                    const Token* start,
@@ -3251,6 +3264,11 @@ static ExprUsage getFunctionUsage(const Token* tok, int indirect, const Settings
         return ExprUsage::Used;
     } else if (ftok->str() == "{") {
         return indirect == 0 ? ExprUsage::Used : ExprUsage::Inconclusive;
+    } else if (ftok->variable() && ftok == ftok->variable()->nameToken()) { // variable init/constructor call
+        if (ftok->variable()->type() && ftok->variable()->type()->needInitialization == Type::NeedInitialization::True)
+            return ExprUsage::Used;
+        if (ftok->variable()->isStlType() || (ftok->variable()->valueType() && ftok->variable()->valueType()->container)) // STL types or containers don't initialize external variables
+            return ExprUsage::Used;
     } else {
         const bool isnullbad = settings->library.isnullargbad(ftok, argnr + 1);
         if (indirect == 0 && astIsPointer(tok) && !addressOf && isnullbad)
@@ -3261,6 +3279,18 @@ static ExprUsage getFunctionUsage(const Token* tok, int indirect, const Settings
             return ExprUsage::Used;
     }
     return ExprUsage::Inconclusive;
+}
+
+bool isLeafDot(const Token* tok)
+{
+    if (!tok)
+        return false;
+    const Token * parent = tok->astParent();
+    if (!Token::simpleMatch(parent, "."))
+        return false;
+    if (parent->astOperand2() == tok && !Token::simpleMatch(parent->astParent(), "."))
+        return true;
+    return isLeafDot(parent);
 }
 
 ExprUsage getExprUsage(const Token* tok, int indirect, const Settings* settings, bool cpp)
@@ -3283,6 +3313,18 @@ ExprUsage getExprUsage(const Token* tok, int indirect, const Settings* settings,
             !parent->isUnaryOp("&") &&
             !(astIsRHS(tok) && isLikelyStreamRead(cpp, parent)))
             return ExprUsage::Used;
+        if (isLeafDot(tok)) {
+            const Token* op = parent->astParent();
+            while (Token::simpleMatch(op, "."))
+                op = op->astParent();
+            if (Token::Match(op, "%assign%|++|--")) {
+                if (op->str() == "=") {
+                    if (precedes(tok, op))
+                        return ExprUsage::NotUsed;
+                } else
+                    return ExprUsage::Used;
+            }
+        }
         if (Token::simpleMatch(parent, "=") && astIsRHS(tok)) {
             const Token* const lhs  = parent->astOperand1();
             if (lhs && lhs->variable() && lhs->variable()->isReference() && lhs == lhs->variable()->nameToken())

@@ -1596,18 +1596,6 @@ void CheckUninitVar::uninitStructMemberError(const Token *tok, const std::string
                 "$symbol:" + membername + "\nUninitialized struct member: $symbol", CWE_USE_OF_UNINITIALIZED_VARIABLE, Certainty::normal);
 }
 
-static bool isLeafDot(const Token* tok)
-{
-    if (!tok)
-        return false;
-    const Token * parent = tok->astParent();
-    if (!Token::simpleMatch(parent, "."))
-        return false;
-    if (parent->astOperand2() == tok && !Token::simpleMatch(parent->astParent(), "."))
-        return true;
-    return isLeafDot(parent);
-}
-
 void CheckUninitVar::valueFlowUninit()
 {
     logChecker("CheckUninitVar::valueFlowUninit");
@@ -1694,7 +1682,14 @@ static bool isVariableUsage(const Settings *settings, const Token *vartok, MathL
     return CheckUninitVar::isVariableUsage(vartok, settings->library, true, CheckUninitVar::Alloc::ARRAY);
 }
 
-namespace {
+// a Clang-built executable will crash when using the anonymous MyFileInfo later on - so put it in a unique namespace for now
+// see https://trac.cppcheck.net/ticket/12108 for more details
+#ifdef __clang__
+inline namespace CheckUninitVar_internal
+#else
+namespace
+#endif
+{
     /* data for multifile checking */
     class MyFileInfo : public Check::FileInfo {
     public:

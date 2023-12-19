@@ -6306,6 +6306,34 @@ private:
                         "    if ((b[0] = g()) == 0) {}\n"
                         "}");
         ASSERT_EQUALS("", errout.str());
+
+        valueFlowUninit("void f(const char *x, char *y);\n" // #4527
+                        "void g(char* b) {\n"
+                        "    char a[1000];\n"
+                        "    f(a, b);\n"
+                        "    printf(\"%s\", a);\n"
+                        "}");
+        ASSERT_EQUALS("[test.cpp:5]: (error) Uninitialized variable: a\n", errout.str());
+
+        valueFlowUninit("void usage(const char *);\n" // #10330
+                        "int main(int argc, char* argv[]) {\n"
+                        "    int user = 0;\n"
+                        "    struct passwd* pwd;\n"
+                        "    while (1) {\n"
+                        "        int c = getc();\n"
+                        "        if (c == -1)\n"
+                        "            break;\n"
+                        "        switch (c) {\n"
+                        "        case 'u': user = 123; break;\n"
+                        "        }\n"
+                        "    }\n"
+                        "    if (argc == 1)\n"
+                        "        usage(argv[0]);\n"
+                        "    if (user)\n"
+                        "        pwd = getpwnam(user);\n"
+                        "    if (pwd == NULL) {}\n"
+                        "}");
+        ASSERT_EQUALS("[test.cpp:15] -> [test.cpp:17]: (warning) Uninitialized variable: pwd\n", errout.str());
     }
 
     void valueFlowUninitBreak() { // Do not show duplicate warnings about the same uninitialized value
@@ -6559,7 +6587,7 @@ private:
                         "  bool copied_all = true;\n"
                         "  g(&copied_all, 5, 6, &bytesCopied);\n"
                         "}");
-        TODO_ASSERT_EQUALS("[test.cpp:7] -> [test.cpp:2]: (warning) Uninitialized variable: *buflen\n", "", errout.str());
+        ASSERT_EQUALS("[test.cpp:7] -> [test.cpp:2]: (warning) Uninitialized variable: *buflen\n", errout.str());
 
         // # 9953
         valueFlowUninit("uint32_t f(uint8_t *mem) {\n"
@@ -7215,6 +7243,60 @@ private:
                         "  foo(&my_st);\n"
                         "}\n");
         ASSERT_EQUALS("", errout.str());
+
+        valueFlowUninit("struct S {\n" // #12188
+                        "    int i;\n"
+                        "    struct T { int j; } t;\n"
+                        "};\n"
+                        "void f() {\n"
+                        "    S s;\n"
+                        "    ++s.i;\n"
+                        "}\n"
+                        "void g() {\n"
+                        "    S s;\n"
+                        "    s.i--;\n"
+                        "}\n"
+                        "void h() {\n"
+                        "    S s;\n"
+                        "    s.i &= 3;\n"
+                        "}\n"
+                        "void k() {\n"
+                        "    S s;\n"
+                        "    if (++s.i < 3) {}\n"
+                        "}\n"
+                        "void m() {\n"
+                        "    S s;\n"
+                        "    ++s.t.j;\n"
+                        "}\n"
+                        "void n() {\n"
+                        "    S s;\n"
+                        "    if (s.t.j-- < 3) {}\n"
+                        "}\n");
+        ASSERT_EQUALS("[test.cpp:7]: (error) Uninitialized variable: s.i\n"
+                      "[test.cpp:11]: (error) Uninitialized variable: s.i\n"
+                      "[test.cpp:15]: (error) Uninitialized variable: s.i\n"
+                      "[test.cpp:19]: (error) Uninitialized variable: s.i\n"
+                      "[test.cpp:23]: (error) Uninitialized variable: s.t.j\n"
+                      "[test.cpp:27]: (error) Uninitialized variable: s.t.j\n",
+                      errout.str());
+
+        valueFlowUninit("struct S { int x; };\n"
+                        "void f() {\n"
+                        "    int i;\n"
+                        "    S s(i);\n"
+                        "}\n"
+                        "void g() {\n"
+                        "    int i;\n"
+                        "    S t{ i };\n"
+                        "}\n"
+                        "void h() {\n"
+                        "    int i;\n"
+                        "    std::vector<int> v(i);\n"
+                        "}\n");
+        ASSERT_EQUALS("[test.cpp:4]: (error) Uninitialized variable: i\n"
+                      "[test.cpp:8]: (error) Uninitialized variable: i\n"
+                      "[test.cpp:12]: (error) Uninitialized variable: i\n",
+                      errout.str());
     }
 
     void uninitvar_memberfunction() {

@@ -36,10 +36,11 @@
 #include <unordered_set>
 #include <utility>
 
-#include <tinyxml2.h>
+#include "xml.h"
 
 #include "json.h"
 
+// TODO: align the exclusion logic with PathMatch
 void ImportProject::ignorePaths(const std::vector<std::string> &ipaths)
 {
     for (std::list<FileSettings>::iterator it = fileSettings.begin(); it != fileSettings.end();) {

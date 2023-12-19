@@ -21,16 +21,13 @@
 #include "filesettings.h"
 #include "fixture.h"
 #include "helpers.h"
-#include "library.h"
 #include "threadexecutor.h"
 #include "timer.h"
 
 #include <algorithm>
 #include <cstdlib>
 #include <list>
-#include <map>
 #include <memory>
-#include <set>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -70,7 +67,6 @@ private:
      */
     void check(unsigned int jobs, int files, int result, const std::string &data, const CheckOptions& opt = make_default_obj{}) {
         errout.str("");
-        output.str("");
 
         std::list<FileSettings> fileSettings;
 
@@ -147,13 +143,14 @@ private:
         TEST_CASE(no_errors_equal_amount_files);
         TEST_CASE(one_error_less_files);
         TEST_CASE(one_error_several_files);
-        TEST_CASE(markup);
         TEST_CASE(clangTidy);
         TEST_CASE(showtime_top5_file);
         TEST_CASE(showtime_top5_summary);
         TEST_CASE(showtime_file);
         TEST_CASE(showtime_summary);
         TEST_CASE(showtime_file_total);
+        TEST_CASE(suppress_error_library);
+        TEST_CASE(unique_errors);
     }
 
     void deadlock_with_many_errors() {
@@ -243,46 +240,6 @@ private:
               "}");
     }
 
-    void markup() {
-        const Settings settingsOld = settings;
-        settings.library.mMarkupExtensions.emplace(".cp1");
-        settings.library.mProcessAfterCode.emplace(".cp1", true);
-
-        const std::vector<std::string> files = {
-            fprefix() + "_1.cp1", fprefix() + "_2.cpp", fprefix() + "_3.cp1", fprefix() + "_4.cpp"
-        };
-
-        // checks are not executed on markup files => expected result is 2
-        check(2, 4, 2,
-              "int main()\n"
-              "{\n"
-              "  int i = *((int*)0);\n"
-              "  return 0;\n"
-              "}",
-              dinit(CheckOptions,
-                    $.quiet = false,
-                        $.filesList = files));
-        // TODO: order of "Checking" and "checked" is affected by thread
-        /*TODO_ASSERT_EQUALS("Checking " + fprefix() + "_2.cpp ...\n"
-                           "1/4 files checked 25% done\n"
-                           "Checking " + fprefix() + "_4.cpp ...\n"
-                           "2/4 files checked 50% done\n"
-                           "Checking " + fprefix() + "_1.cp1 ...\n"
-                           "3/4 files checked 75% done\n"
-                           "Checking " + fprefix() + "_3.cp1 ...\n"
-                           "4/4 files checked 100% done\n",
-                           "Checking " + fprefix() + "_1.cp1 ...\n"
-                           "1/4 files checked 25% done\n"
-                           "Checking " + fprefix() + "_2.cpp ...\n"
-                           "2/4 files checked 50% done\n"
-                           "Checking " + fprefix() + "_3.cp1 ...\n"
-                           "3/4 files checked 75% done\n"
-                           "Checking " + fprefix() + "_4.cpp ...\n"
-                           "4/4 files checked 100% done\n",
-                           output.str());*/
-        settings = settingsOld;
-    }
-
     void clangTidy() {
         // TODO: we currently only invoke it with ImportProject::FileSettings
         if (!useFS)
@@ -306,7 +263,7 @@ private:
                         $.executeCommandCalled = true,
                         $.exe = exe,
                         $.args = {"-quiet", "-checks=*,-clang-analyzer-*,-llvm*", file, "--"}));
-        ASSERT_EQUALS("Checking " + file + " ...\n", output.str());
+        ASSERT_EQUALS("Checking " + file + " ...\n", output_str());
     }
 
     // TODO: provide data which actually shows values above 0
@@ -369,6 +326,34 @@ private:
         const std::string output_s = GET_REDIRECT_OUTPUT;
         ASSERT(output_s.find("Check time: " + fprefix() + "_1.cpp: ") != std::string::npos);
         ASSERT(output_s.find("Check time: " + fprefix() + "_2.cpp: ") != std::string::npos);
+    }
+
+    void suppress_error_library() {
+        SUPPRESS;
+        const Settings settingsOld = settings;
+        const char xmldata[] = R"(<def format="2"><markup ext=".cpp" reporterrors="false"/></def>)";
+        settings = settingsBuilder().libraryxml(xmldata, sizeof(xmldata)).build();
+        check(2, 1, 0,
+              "int main()\n"
+              "{\n"
+              "  int i = *((int*)0);\n"
+              "  return 0;\n"
+              "}");
+        ASSERT_EQUALS("", errout.str());
+        settings = settingsOld;
+    }
+
+    void unique_errors() {
+        SUPPRESS;
+        ScopedFile inc_h(fprefix() + ".h",
+                         "inline void f()\n"
+                         "{\n"
+                         "  (void)*((int*)0);\n"
+                         "}");
+        check(2, 2, 2,
+              "#include \"" + inc_h.name() +"\"");
+        // this is made unique by the executor
+        ASSERT_EQUALS("[" + inc_h.name() + ":3]: (error) Null pointer dereference: (int*)0\n", errout.str());
     }
 
     // TODO: test whole program analysis

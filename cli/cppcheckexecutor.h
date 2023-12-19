@@ -19,23 +19,18 @@
 #ifndef CPPCHECKEXECUTOR_H
 #define CPPCHECKEXECUTOR_H
 
-#include "color.h"
 #include "config.h"
-#include "errorlogger.h"
 #include "filesettings.h"
 
 #include <cstdio>
-#include <ctime>
-#include <iosfwd>
 #include <list>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 class CppCheck;
-class Library;
 class Settings;
+class ErrorLogger;
 
 /**
  * This class works as an example of how CppCheck can be used in external
@@ -44,7 +39,7 @@ class Settings;
  * just rewrite this class for your needs and possibly use other methods
  * from CppCheck class instead the ones used here.
  */
-class CppCheckExecutor : public ErrorLogger {
+class CppCheckExecutor {
 public:
     friend class TestSuppressions;
 
@@ -54,11 +49,6 @@ public:
     CppCheckExecutor() = default;
     CppCheckExecutor(const CppCheckExecutor &) = delete;
     void operator=(const CppCheckExecutor&) = delete;
-
-    /**
-     * Destructor
-     */
-    ~CppCheckExecutor() override;
 
     /**
      * Starts the checking.
@@ -73,23 +63,6 @@ public:
      */
     int check(int argc, const char* const argv[]);
 
-private:
-
-    /**
-     * Information about progress is directed here. This should be
-     * called by the CppCheck class only.
-     *
-     * @param outmsg Progress message e.g. "Checking main.cpp..."
-     */
-    void reportOut(const std::string &outmsg, Color c = Color::Reset) override;
-
-    /** xml output of errors */
-    void reportErr(const ErrorMessage &msg) override;
-
-    void reportProgress(const std::string &filename, const char stage[], const std::size_t value) override;
-
-public:
-
     /**
      * @param exceptionOutput Output file
      */
@@ -102,32 +75,11 @@ public:
 private:
 
     /**
-     * Tries to load a library and prints warning/error messages
-     * @return false, if an error occurred (except unknown XML elements)
-     */
-    static bool tryLoadLibrary(Library& destination, const std::string& basepath, const char* filename);
-
-    /**
      * Execute a shell command and read the output from it. Returns exitcode of the executed command,.
      */
     static int executeCommand(std::string exe, std::vector<std::string> args, std::string redirect, std::string &output_);
 
-    /**
-     * Helper function to print out errors. Appends a line change.
-     * @param errmsg String printed to error stream
-     */
-    void reportErr(const std::string &errmsg);
-
-    /**
-     * @brief Parse command line args and get settings and file lists
-     * from there.
-     *
-     * @param settings the settings to store into
-     * @param argc argc from main()
-     * @param argv argv from main()
-     * @return false when errors are found in the input
-     */
-    bool parseFromArgs(Settings &settings, int argc, const char* const argv[]);
+protected:
 
     static bool reportSuppressions(const Settings &settings, bool unusedFunctionCheckEnabled, const std::list<std::pair<std::string, std::size_t>> &files, ErrorLogger& errorLogger);
 
@@ -149,36 +101,7 @@ private:
      *         given value is returned instead of default 0.
      *         If no errors are found, 0 is returned.
      */
-    int check_internal(CppCheck& cppcheck);
-
-    /**
-     * @brief Load libraries
-     * @param settings Settings
-     * @return Returns true if successful
-     */
-    bool loadLibraries(Settings& settings);
-
-    /**
-     * @brief Load addons
-     * @param settings Settings
-     * @return Returns true if successful
-     */
-    static bool loadAddons(Settings& settings);
-
-    /**
-     * @brief Write the checkers report
-     */
-    void writeCheckersReport(const Settings& settings) const;
-
-    /**
-     * Pointer to current settings; set while check() is running for reportError().
-     */
-    const Settings* mSettings{};
-
-    /**
-     * Used to filter out duplicate error messages.
-     */
-    std::set<std::string> mShownErrors;
+    int check_internal(CppCheck& cppcheck) const;
 
     /**
      * Filename associated with size of file
@@ -187,11 +110,6 @@ private:
 
     std::list<FileSettings> mFileSettings;
 
-    /**
-     * Report progress time
-     */
-    std::time_t mLatestProgressOutputTime{};
-
 #if defined(USE_WINDOWS_SEH) || defined(USE_UNIX_SIGNAL_HANDLING)
     /**
      * Output file name for exception handler
@@ -199,20 +117,8 @@ private:
     static FILE* mExceptionOutput;
 #endif
 
-    /**
-     * Error output
-     */
-    std::ofstream* mErrorOutput{};
-
-    /**
-     * Checkers that has been executed
-     */
-    std::set<std::string> mActiveCheckers;
-
-    /**
-     * True if there are critical errors
-     */
-    std::string mCriticalErrors;
+    class StdLogger;
+    StdLogger* mStdLogger{};
 };
 
 #endif // CPPCHECKEXECUTOR_H

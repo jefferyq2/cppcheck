@@ -2144,6 +2144,15 @@ private:
               "    (void)s.i;\n"
               "}\n");
         ASSERT_EQUALS("[test.cpp:8] -> [test.cpp:9]: (error) Using reference to dangling temporary.\n", errout.str());
+
+        check("std::string f() {\n" // #12173
+              "    std::string s;\n"
+              "    for (auto& c : { \"a\", \"b\", \"c\" }) {\n"
+              "        s += c;\n"
+              "    }\n"
+              "    return s;\n"
+              "}\n");
+        ASSERT_EQUALS("", errout.str());
     }
 
     void testglobalnamespace() {
@@ -2923,6 +2932,13 @@ private:
               "}\n");
         ASSERT_EQUALS("[test.cpp:2] -> [test.cpp:2] -> [test.cpp:3]: (error) Using object that is a temporary.\n",
                       errout.str());
+
+        // #10833
+        check("struct A { std::string s; };\n"
+              "const std::string& f(A* a) {\n"
+              "    return a ? a->s : \"\";\n"
+              "}\n");
+        ASSERT_EQUALS("[test.cpp:3]: (error) Reference to temporary returned.\n", errout.str());
 
         check("std::span<int> f() {\n"
               "    std::vector<int> v{};\n"

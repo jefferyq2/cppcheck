@@ -40,7 +40,8 @@
 #include <iterator>
 #include <numeric> // std::accumulate
 #include <sstream>
-#include <tinyxml2.h>
+
+#include "xml.h"
 
 //---------------------------------------------------------------------------
 
@@ -883,7 +884,14 @@ void CheckBufferOverrun::argumentSizeError(const Token *tok, const std::string &
 // CTU..
 //---------------------------------------------------------------------------
 
-namespace {
+// a Clang-built executable will crash when using the anonymous MyFileInfo later on - so put it in a unique namespace for now
+// see https://trac.cppcheck.net/ticket/12108 for more details
+#ifdef __clang__
+inline namespace CheckBufferOverrun_internal
+#else
+namespace
+#endif
+{
     /** data for multifile checking */
     class MyFileInfo : public Check::FileInfo {
     public:
@@ -952,6 +960,7 @@ Check::FileInfo *CheckBufferOverrun::getFileInfo(const Tokenizer *tokenizer, con
 
 Check::FileInfo * CheckBufferOverrun::loadFileInfoFromXml(const tinyxml2::XMLElement *xmlElement) const
 {
+    // cppcheck-suppress shadowFunction - TODO: fix this
     const std::string arrayIndex("array-index");
     const std::string pointerArith("pointer-arith");
 
